@@ -51,9 +51,8 @@ Example:
 Working on it ... 
 {http://test.example.com/=http://test.example.com/}
 
-
 ```
-
+( Native java deserialization code here: [https://github.com/k3idii/JavaSerializationTestSuit] )
 
 ### test stability :
 This mode test if serialization and deserialization is "stable" - if the binary output of serialization of unserialized data is same :)
