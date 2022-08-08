@@ -1,4 +1,6 @@
 # Deserek (from polish: (diminutive) dessert)
+NO MORE NEED TO USE JAVA to produce java-serilized stuff !
+
 ![image](https://user-images.githubusercontent.com/7603260/183523182-743458f0-ae57-4691-9382-d2d78dbf435d.png)
 
 Python code to Serialize and Unserialize java binary serialization format. 
