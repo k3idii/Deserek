@@ -16,7 +16,7 @@ import javaConst
 import time
 
 
-MODULENAMEPREFIX="deserek"
+MODULENAMEPREFIX="deserek."
 
 _tc_from_name = lambda name: getattr(javaConst, name)
 
@@ -1382,10 +1382,12 @@ if __name__ == '__main__':
       print(yamlify(tmp))
     elif args.out == 'json':
       print(json.dumps(_dictify(tmp)))
-    elif args.out == 'python':
+    elif args.out == 'python':  
       print("import deserek")
       print("import javaConst")
       print("obj = " + tmp.as_python())
+      print("import sys")
+      print("sys.stdout.buffer.write( deserek.do_serialize(obj) )") 
     else:
       raise Exception("Unknown output format !")
     
