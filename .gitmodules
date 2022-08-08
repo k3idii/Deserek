@@ -1,0 +1,3 @@
+[submodule "bytewirez"]
+	path = bytewirez
+	url = git@github.com:k3idii/bytewirez.git
