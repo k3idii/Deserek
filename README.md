@@ -1,6 +1,7 @@
-# Deserek
-Python code to Serialize and Unserialize java binary serialization format. 
+# Deserek (from polish: (diminutive) dessert)
+![image](https://user-images.githubusercontent.com/7603260/183523182-743458f0-ae57-4691-9382-d2d78dbf435d.png)
 
+Python code to Serialize and Unserialize java binary serialization format. 
 For reading/writing uses https://github.com/k3idii/bytewirez
 
 This code prints A LOT of debug message (for now).
