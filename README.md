@@ -1,4 +1,6 @@
 # Deserek (from polish: (diminutive) dessert)
+NO MORE NEED TO USE JAVA to produce java-serilized stuff !
+
 ![image](https://user-images.githubusercontent.com/7603260/183523182-743458f0-ae57-4691-9382-d2d78dbf435d.png)
 
 Python code to Serialize and Unserialize java binary serialization format. 
@@ -51,9 +53,8 @@ Example:
 Working on it ... 
 {http://test.example.com/=http://test.example.com/}
 
-
 ```
-
+( Native java deserialization code here: [https://github.com/k3idii/JavaSerializationTestSuit] )
 
 ### test stability :
 This mode test if serialization and deserialization is "stable" - if the binary output of serialization of unserialized data is same :)
