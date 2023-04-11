@@ -4,8 +4,15 @@ from collections import OrderedDict
 import base64 
 import struct
 
-from bytewirez import bytewirez
-from loguru import logger
+import bytewirez.bytewirez as bytewirez
+
+try:
+  from loguru import logger
+except:
+  print("No loguru ! -> fallback to default")
+  from logging import Logger
+  logger = Logger("foo")
+  
 
 
 import yaml
@@ -16,7 +23,7 @@ import javaConst
 import time
 
 
-MODULENAMEPREFIX="deserek."
+MODULENAMEPREFIX="deserek"
 
 _tc_from_name = lambda name: getattr(javaConst, name)
 
@@ -1352,9 +1359,10 @@ def _unserial_wire(wire):
 
 
 
-
-
-
+def _get_python_code_imports():
+  return "\n".join([f"import {mod}" for mod in ["deserek", "javaConst"] ])
+                    
+                    
 
 
 
@@ -1369,7 +1377,7 @@ if __name__ == '__main__':
   bin1 = open(args.filename,"rb").read()
     
   if b'rO0' == bin1[:3] : 
-    logger.warning("Payload is base64 :)")
+    logger.warning("[HEURISTIC] Payload is base64 :)")
     bin1 = base64.b64decode(bin1)
 
 
@@ -1382,43 +1390,52 @@ if __name__ == '__main__':
       print(yamlify(tmp))
     elif args.out == 'json':
       print(json.dumps(_dictify(tmp)))
-    elif args.out == 'python':  
-      print("import deserek")
-      print("import javaConst")
+    elif args.out == 'python':
+      print(_get_python_code_imports())
       print("obj = " + tmp.as_python())
-      print("import sys")
-      print("sys.stdout.buffer.write( deserek.do_serialize(obj) )") 
     else:
       raise Exception("Unknown output format !")
     
   else:    
-    print("UNSERILIZED !")
-    print("Testing serialization : ")
+    print(" > UNSERILIZED Succesfully !")
+    print("*** TEST 1 : serialization : ")
     #time.sleep(2)    
     bin2 = do_serialize(tmp)
 
-    print(f"SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin2)} ")
-    open("tmp.bin","wb").write(bin2)
-    open("tmp.yml","w").write(yamlify(tmp))
+    print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin2)} (saved as tmp2.bin/yml)")
+    open("tmp2.bin","wb").write(bin2)
+    open("tmp2.yml","w").write(yamlify(tmp))
+    
+    print(" ?? check if binary 1 & 2 format is identiacal ")
     assert bin1 == bin2, "Serialization 1-2 not stable"
+    print(" ++ OK \n")
+
 
     #time.sleep(2)
+    print("*** TEST 2 : Unserialize bin2 ")
     
     tmp3 = do_unserial(bin2)
+    print(" ++ OK \n")
     
-    print("TEST serialization from python code ... ")
+    print(" *** TEST 3 : serialization from python code ... ")
     #time.sleep(2)
     
     tmp4 = None
     MODULENAMEPREFIX = ''
     eval_str = 'tmp4 = {0}'.format( tmp.as_python() )
-    open("tmp__x.py","w").write(eval_str)
+    
+    open("tmp3.py","w").write(
+      "import javaConst\nfrom deserek import *\n\n" + eval_str 
+    )
+    print(" -> Save do tmp3.py")
     exec(eval_str)
     
+    print(" -> Serialize from tmp4 variable")
     bin4 = do_serialize(tmp4)
-    print(f"SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin4)} ")
-    open("tmp.bin","wb").write(bin4)
-    open("tmp.yml","w").write(yamlify(tmp))
+    print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin4)} ")
+    open("tmp4.bin","wb").write(bin4)
+    open("tmp4.yml","w").write(yamlify(tmp))
+    print(" ?? check if binary 1 & 4 format is identiacal ")
     assert bin1 == bin4, "Serialization 1-4 not stable"
 
 
