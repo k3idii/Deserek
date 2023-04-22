@@ -1223,6 +1223,8 @@ class JavaDeserek:
   
   _ref = {}
   _ref_backlog = {}
+  
+  _silent = False
 
   wire    : bytewirez.Wire = None
   reader  = None  
@@ -1277,15 +1279,18 @@ class JavaDeserek:
 
   def log_inf(self, msg):
     #self.reader.log_inf(msg)
-    logger.info(msg)
+    if not self._silent:
+      logger.info(msg)
 
   def log_dbg(self, msg):
     #self.reader.log_dbg(msg)
-    logger.debug(msg)
+    if not self._silent:
+      logger.debug(msg)
 
   def log_war(self, msg):
     #self.reader.log_war(msg)
-    logger.warning(msg)
+    if not self._silent:
+      logger.warning(msg)
 
 
 
@@ -1315,14 +1320,16 @@ def do_serialize( stuff):
 
 
 
-def do_unserial(from_bytes=None, from_fd=None):
+def do_unserial(from_bytes=None, from_fd=None, silent=False):
   if from_bytes:
     return _unserial_wire(
-      wire = bytewirez.Wire(from_bytes=from_bytes)
+      wire = bytewirez.Wire(from_bytes=from_bytes),
+      silent = silent
     )
   elif from_fd:
     return _unserial_wire(
-      wire = bytewirez.Wire(from_fd = from_fd)
+      wire = bytewirez.Wire(from_fd = from_fd),
+      silent = silent
     )
   else:
     raise Exception("No source provided")
@@ -1330,7 +1337,7 @@ def do_unserial(from_bytes=None, from_fd=None):
 
 
 
-def _unserial_wire(wire):
+def _unserial_wire(wire,silent=False):
   
   context = JavaDeserek()
 
@@ -1338,6 +1345,9 @@ def _unserial_wire(wire):
   context.attach_wire(wire)
   context.reader = bytewirez.StructureReader(wire)
   context.reader.logger = logger
+  if silent:
+    context._silent = True
+    context.reader._silent = True
   
   with context.reader.start_object("DATA"):
     
@@ -1376,9 +1386,11 @@ def _get_python_code_imports():
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser(description='JavaDeserializer')
-  parser.add_argument('filename', help='Load and parse file')
-  parser.add_argument('--test',  help='Test stability of parsing', action="store_true", required=False)
-  parser.add_argument("--out",   help="out format : yaml, json, python", required=False, default=None)
+  parser.add_argument('filename',   help='Load and parse file')
+  parser.add_argument('--test',     help='Test stability of parsing', action="store_true", required=False)
+  parser.add_argument("--out",      help="out format : yaml, json, python", required=False, default=None)
+  parser.add_argument("--silent",   help="Silent mode", required=False, default=False, action="store_true")
+  
   args = parser.parse_args()
   
   bin1 = open(args.filename,"rb").read()
@@ -1387,8 +1399,7 @@ if __name__ == '__main__':
     logger.warning("[HEURISTIC] Payload is base64 :)")
     bin1 = base64.b64decode(bin1)
 
-
-  tmp = do_unserial(from_bytes=bin1)
+  tmp = do_unserial(from_bytes=bin1, silent=args.silent)
 
   if not args.test:
     if args.out is None:
