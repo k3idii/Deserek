@@ -23,7 +23,7 @@ import javaConst
 import time
 
 
-MODULENAMEPREFIX="deserek"
+MODULENAMEPREFIX="deserek."
 
 _tc_from_name = lambda name: getattr(javaConst, name)
 
@@ -75,8 +75,8 @@ def _cname(o):
   return type(o).__name__
 
 yaml.add_representer(OrderedDict, lambda dumper, data: dumper.represent_mapping('tag:yaml.org,2002:map', data.items()))
-def yamlify(o):
-  return yaml.dump(_dictify(o), default_flow_style=False)
+def yamlify(o, width=1000):
+  return yaml.dump(_dictify(o), default_flow_style=False,  width=width)
 
 class EndBlockData(Exception):
   pass
@@ -437,8 +437,10 @@ class serJavaLongString(_abs_serSingleValue):
     self.value = tmp.decode()
     ctx.log_inf(f"JavaString ({size}){self.value}")
 
-
-
+  def write(self, ctx):
+    ctx.log_inf("JavaString")
+    ctx.wire.write_qword( len(self.value) )
+    ctx.wire.write(self.value.encode())
 
   
   
@@ -1287,9 +1289,14 @@ class JavaDeserek:
 
 
 
-    
-    
-    
+
+def raw_serialize(stuff):
+  context = JavaDeserek()
+  context.attach_wire(  bytewirez.Wire(from_bytes=b'') ) 
+  context.wire.set_endian(bytewirez.ENDIAN_BIG)
+  stuff.write(context)
+  return context.wire.dump()
+
 
 def do_serialize( stuff):
   context = JavaDeserek()
@@ -1336,7 +1343,7 @@ def _unserial_wire(wire):
     
     context.reader.will_read("magic")
     tmp = wire.readn(2)
-    assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC), "Invalid MAGIC"
+    assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC), f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC} "
     
     context.reader.will_read("version")
     tmp = wire.read_word() 
