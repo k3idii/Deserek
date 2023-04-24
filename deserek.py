@@ -1295,23 +1295,17 @@ class JavaDeserek:
 
 
 
-def raw_serialize(stuff):
+def do_serialize( stuff, skip_magic=False, silent=False):
   context = JavaDeserek()
-  context.attach_wire(  bytewirez.Wire(from_bytes=b'') ) 
-  context.wire.set_endian(bytewirez.ENDIAN_BIG)
-  stuff.write(context)
-  return context.wire.dump()
-
-
-def do_serialize( stuff):
-  context = JavaDeserek()
-  context.attach_wire( 
-    bytewirez.Wire(from_bytes=b'')
-  )
+  if silent:
+    context._silent = True
+  context.attach_wire( bytewirez.Wire(from_bytes=b'') )
   context.wire.set_endian(bytewirez.ENDIAN_BIG)
   
-  context.wire.write(bytes.fromhex(javaConst.STREAM_MAGIC))
-  context.wire.write_word(javaConst.STREAM_VERSION)
+  if not skip_magic:
+    context.wire.write(bytes.fromhex(javaConst.STREAM_MAGIC))
+    context.wire.write_word(javaConst.STREAM_VERSION)
+  
   stuff.write(context)
 
   return context.wire.dump()
@@ -1320,24 +1314,22 @@ def do_serialize( stuff):
 
 
 
-def do_unserial(from_bytes=None, from_fd=None, silent=False):
+def do_unserial(from_bytes=None, from_fd=None, **kw):
   if from_bytes:
-    return _unserial_wire(
-      wire = bytewirez.Wire(from_bytes=from_bytes),
-      silent = silent
-    )
+    wire = bytewirez.Wire(from_bytes=from_bytes)
   elif from_fd:
-    return _unserial_wire(
-      wire = bytewirez.Wire(from_fd = from_fd),
-      silent = silent
-    )
+    wire = bytewirez.Wire(from_fd = from_fd)
   else:
     raise Exception("No source provided")
+  return _unserial_wire(
+            wire = wire,
+            **kw
+          )
 
 
 
 
-def _unserial_wire(wire,silent=False):
+def _unserial_wire(wire, silent=False, save_struct_to=None, save_format=None):
   
   context = JavaDeserek()
 
@@ -1363,10 +1355,12 @@ def _unserial_wire(wire,silent=False):
     with context.reader.start_list():
       stuff = read_contents(context)
   
-  json.dump(
-    context.reader.get_struct(),
-    open("debug.json","w")
-  )
+  if save_struct_to and save_format:
+    f = open(save_struct_to,'w')
+    if save_format == 'json':
+      json.dump(context.reader.get_struct() , f)
+    if save_format == 'imhex':
+      f.write(json.dumps( context.reader.get_struct() ))
   
   return stuff
 
@@ -1390,6 +1384,8 @@ if __name__ == '__main__':
   parser.add_argument('--test',     help='Test stability of parsing', action="store_true", required=False)
   parser.add_argument("--out",      help="out format : yaml, json, python", required=False, default=None)
   parser.add_argument("--silent",   help="Silent mode", required=False, default=False, action="store_true")
+  parser.add_argument("--save-struct-to", help="Save binary structure pattern to FILENAME", default=None, required=False)
+  parser.add_argument("--save-struct-fmt", help="Save binary structure pattern FORMAT (json==default|imhex|kaitai)", default="json", required=False)
   
   args = parser.parse_args()
   
@@ -1399,7 +1395,12 @@ if __name__ == '__main__':
     logger.warning("[HEURISTIC] Payload is base64 :)")
     bin1 = base64.b64decode(bin1)
 
-  tmp = do_unserial(from_bytes=bin1, silent=args.silent)
+  tmp = do_unserial(
+    from_bytes=bin1, 
+    silent=args.silent,
+    save_struct_to=args.save_struct_to,
+    save_format=args.save_struct_fmt,
+  )
 
   if not args.test:
     if args.out is None:
