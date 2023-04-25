@@ -91,6 +91,7 @@ def _get_pad(i):
 
 def _pythonize(item, indent):
   #indent+=1
+  # print(f"Pythonize {item}")
   can_py = getattr(item,"as_python",None)
   if can_py:
     return can_py(indent)
@@ -770,6 +771,7 @@ def _read_single_typecode_value(ctx, tc):
   if tc in javaConst.prim_typecode:
     return serValuePrimitive(ctx=ctx, _typecode_hint=tc)
     # that is ok ;)
+  # else -> object || array  
   elif tc == javaConst.TYPECODE_OBJECT:
     ctx.log_dbg(" OBJECT VALUE !!! ")
     return read_object(ctx)
@@ -1005,7 +1007,7 @@ class serTC_RESET(_abs_serTCValue):
 def read_fieldDesc(ctx):
   return try_read_stuff(
     ctx,
-    "fieldDescrption",
+    frendly_name = "fieldDescrption",
     options = [
       read_primitiveDesc,
       read_objectDesc,
@@ -1177,9 +1179,9 @@ def read_object(ctx):
 
 def read_content(ctx):
   return try_read_stuff(
-    ctx, 
-    "read_content",
-    [
+    ctx = ctx, 
+    frendly_name = "read_content",
+    options = [
       read_object,
       read_blockdata,
     ],
@@ -1193,19 +1195,22 @@ def read_contents(ctx):
   
 
 
-def try_read_stuff(ctx, info, options):
+def try_read_stuff(ctx:object, frendly_name:str, options:list):
+  """
+    Try to read next item using readers from <options>
+  """
   #names = list(x.__name__ for x in options)
   count = len(options)
-  ctx.log_dbg(f"TRY: {info} (candidates count:{count})")
+  ctx.log_dbg(f"TRY: {frendly_name} (candidates count:{count})")
   for i, fnc in enumerate(options):
     try:
       ctx.log_dbg(f"try read no:{i+1:2}/{count} -> Try func:{fnc.__name__}")
       val = fnc(ctx)
       ctx.log_dbg(f"++ GOOD: {fnc} ")
       return val
-    except ReadCheckFailed:
-      ctx.log_dbg(f" -> FAIL: {fnc.__name__} (InvalidMagicValue)")
-  raise ReadCheckFailed("Fail to read - out of options")
+    except ReadCheckFailed as ex:
+      ctx.log_dbg(f" -> FAIL: {fnc.__name__} (reason: {str(ex)})")
+  raise ReadCheckFailed(f"Fail to read - out of options at {frendly_name}")
 
 
 
@@ -1360,7 +1365,7 @@ def _unserial_wire(wire, silent=False, save_struct_to=None, save_format=None):
     if save_format == 'json':
       json.dump(context.reader.get_struct() , f)
     if save_format == 'imhex':
-      f.write(json.dumps( context.reader.get_struct() ))
+      f.write(context.reader.output_imHex())
   
   return stuff
 
