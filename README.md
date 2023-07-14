@@ -23,6 +23,7 @@ Where format :
 * json == json
 * yaml == yaml (from json)
 * python == output valid python code
+* simple == dump as simple object (dicts) <-- best for reading
 
 Example:
 ```
