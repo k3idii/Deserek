@@ -166,6 +166,11 @@ class serListOfObj(_abs_serBareObj):
   def to_dict(self):
     return [_dictify(x) for x in self.value]
 
+  def get_simple_value(self):
+    return list(
+      x.get_simple_value() for x in self.value
+    )
+
   def __iter__(self):
     return self.value.__iter__()
 
@@ -317,6 +322,8 @@ class _abs_serTCValue(_abs_serBasicObject):
     ctx.log_inf(f"WRITE TC: 0x{self.TC:02X}")
     ctx.wire.write_byte(self.TC)
   
+  def get_simple_value(self):
+    return f"<{self._tc_name}>"
 
 
 class _abs_serPeekTypecode(_abs_serBasicObject):
@@ -741,7 +748,7 @@ class serTC_OBJECT(_abs_serTCValue):
     ctx.log_inf(f" classDesc count : {len(class_desc_stack)}")
 
     for cdesc in class_desc_stack[::-1]:
-      ctx.log_dbg("values for {self.classDesc._get_name()}::{cdesc._get_name()}")
+      ctx.log_dbg(f"values for {self.classDesc._get_name()}::{cdesc._get_name()}")
       #with ctx.scope(f"class values for {self.classDesc._get_name()}::{cdesc._get_name()} "):
       self.classData.append(
         serClassDescValues(ctx, _cdesc = cdesc)
@@ -761,6 +768,76 @@ class serTC_OBJECT(_abs_serTCValue):
       getattr(self, key).write(ctx)
 
 
+
+    
+    
+
+  def get_simple_value(self):
+    class_desc_stack  = self._get_classDesc_stack()[::-1]
+    #master_classdesc = class_desc_stack.pop()
+    class_value_stack = self.classData.value
+    retval = []
+    
+    assert len(class_desc_stack) == len(class_value_stack), "Mismatch number of items !"
+    for cdesc, cval in zip(class_desc_stack, class_value_stack):
+      field_names = [ x.fieldName.value for x in cdesc.fields ][::-1]
+      
+      class_values = []
+      for values_src in _classDescFlags_to_fields(cdesc.classDescFlags.value):
+        vals = getattr(cval, values_src, None)
+        for item in vals:        
+          val = item.get_simple_value()
+          if len(field_names) > 0:
+            #class_values.append({"FIELD" : field_names.pop(), "VALUE" : val})
+            class_values.append({field_names.pop() : val})
+          else:
+            class_values.append(val)
+        
+      #values = [ fields, field_names ]
+      
+      retval.append({
+       "class" : { "name" : cdesc.className.value, "uid" : cdesc.UID.value },
+       "values" : class_values,
+      })
+    return retval
+  
+  
+  def old1(self):
+    
+
+    if self.classDesc .TC == javaConst.TC_CLASSDESC:
+      class_name = master_classdesc.className.value
+      uid = master_classdesc.UID.value
+ 
+    values = []
+    
+    def _get_vals_of_collection(col):
+      for item in col : # class_vals.objectAnnotation:
+        values.append(item.get_simple_value())
+    
+    for class_vals in self.classData.value: # iterate over lsit of (sub)class values
+      val_src = []
+      if flags & javaConst.SC_SERIALIZABLE :
+        val_src.append('serialdata')
+      if flags & javaConst.SC_WRITE_METHOD :
+        val_src.append('objectAnnotation')
+      if flags & javaConst.SC_EXTERNALIZABLE:
+        if flags & javaConst.SC_BLOCK_DATA:
+          val_src.append('externalContent')
+        else:
+          val_src.append('objectAnnotation')
+      #print(f"Getting values from {val_src}")
+      for src_name in val_src:
+        tmp = getattr(class_vals, src_name, None)
+        if tmp is not None:
+          _get_vals_of_collection(tmp)
+
+
+    
+    return {
+      "Class" : {"Name":class_name, "UID":uid },
+      "values" : values,
+    }
 
 
 
@@ -816,6 +893,8 @@ class serValuePrimitive(_abs_serBasicObject):
   def write(self, ctx):
     ctx.wire.write_fmt(self._format, self.value)
 
+  def get_simple_value(self):
+    return f"(primitive:{self._format}) {self.value}"
 
 
 class serTC_STRING(_abs_serTCValue):
@@ -830,6 +909,9 @@ class serTC_STRING(_abs_serTCValue):
 
   def write_obj(self, ctx):
     self.value.write(ctx)
+
+  def get_simple_value(self):
+    return f"(stringObject) {self.value.value}"
 
 
 
@@ -888,6 +970,11 @@ class serTC_ARRAY(_abs_serTCValue):
     # TODO: ctx.wire.write_dword() ... 
     self.value.write(ctx, include_size='>I')
 
+  def get_simple_value(self):
+    retval = []
+    for item in self.value:
+      retval.append(item.get_simple_value())
+    return retval
 
 class serTC_ENUM(_abs_serTCValue):
   TC = javaConst.TC_ENUM
@@ -932,7 +1019,11 @@ class serTC_BLOCKDATA(_abs_serTCValue):
     )
     return rv
 
+  def get_simple_value(self):
+    #return { "HEX": self.value.hex(), "STR":  str(self.value) }
+    return { "BLOCKDATA":  str(self.value) }
 
+    
 
 class serTC_BLOCKDATALONG(_abs_serTCValue):
   TC = javaConst.TC_BLOCKDATALONG
@@ -985,6 +1076,9 @@ class serTC_ENDBLOCKDATA(_abs_serTCValue):
 class serTC_NULL(_abs_serTCValue):
   TC = javaConst.TC_NULL
   _is_empty = True
+  
+  def get_simple_value(self):
+    return "<NULL>"
  
 class serTC_EXCEPTION(_abs_serTCValue):
   TC = javaConst.TC_EXCEPTION
@@ -1340,8 +1434,8 @@ def _unserial_wire(wire, silent=False, save_struct_to=None, save_format=None):
 
   wire.set_endian(bytewirez.ENDIAN_BIG)
   context.attach_wire(wire)
-  context.reader = bytewirez.StructureReader(wire)
-  context.reader.logger = logger
+  context.reader = bytewirez.StructureReader(wire, logger = logger)
+  #context.reader.logger = logger
   if silent:
     context._silent = True
     context.reader._silent = True
@@ -1371,6 +1465,9 @@ def _unserial_wire(wire, silent=False, save_struct_to=None, save_format=None):
 
 
 
+def simplyfy_object(j_obj):
+  return j_obj.get_simple_value()
+
 
 
 
@@ -1387,7 +1484,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='JavaDeserializer')
   parser.add_argument('filename',   help='Load and parse file')
   parser.add_argument('--test',     help='Test stability of parsing', action="store_true", required=False)
-  parser.add_argument("--out",      help="out format : yaml, json, python", required=False, default=None)
+  parser.add_argument("--format",   help="out format : yaml, json, python", required=False, default=None)
   parser.add_argument("--silent",   help="Silent mode", required=False, default=False, action="store_true")
   parser.add_argument("--save-struct-to", help="Save binary structure pattern to FILENAME", default=None, required=False)
   parser.add_argument("--save-struct-fmt", help="Save binary structure pattern FORMAT (json==default|imhex|kaitai)", default="json", required=False)
@@ -1408,15 +1505,17 @@ if __name__ == '__main__':
   )
 
   if not args.test:
-    if args.out is None:
+    if args.format is None:
       print("DONE !")
-    elif args.out == 'yaml':
+    elif args.format == 'yaml':
       print(yamlify(tmp))
-    elif args.out == 'json':
+    elif args.format == 'json':
       print(json.dumps(_dictify(tmp)))
-    elif args.out == 'python':
+    elif args.format == 'python':
       print(_get_python_code_imports())
       print("obj = " + tmp.as_python())
+    elif args.format == "simple":
+        print( yaml.dump( simplyfy_object(tmp) , width=1000) )  
     else:
       raise Exception("Unknown output format !")
     

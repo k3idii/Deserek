@@ -24,8 +24,6 @@ HandleID = __HandleIdGeneratorClass()
 
 
 
-
-
 class JavaStuff:
   def to_java(self):
     raise Exception("Implement me - I am interface")
@@ -67,14 +65,14 @@ class JavaSerializableClass(JavaStuff):
   
   _has_write_method = False 
   
-  def __init__(self):
+  def __init__(self,**kw):
+    for key,val in kw.items():
+      setattr(self, key, val)
     self.constructor()
   
     
   def constructor(self):
     pass 
-  
-  
   
   def _get_flags(self):
     flags = 0 | javaConst.SC_SERIALIZABLE
@@ -99,8 +97,6 @@ class JavaSerializableClass(JavaStuff):
       raise Exception("Implement me")
     
     list_of_fields = []
-    print(self._fields)
-    print(self._field_types)
     for f in self._fields:
       assert f in self._field_types, f"Need field type definition for {f}"
       type_hint = self._field_types[f]
@@ -164,27 +160,44 @@ class JavaSerializableClass(JavaStuff):
   
   
   
-  
-  
-  
 class JavaExternalizableClass(JavaSerializableClass):
+  _fields = [] # no need to list fields
   
   def _get_flags(self):
     flags = 0 | javaConst.SC_BLOCK_DATA | javaConst.SC_EXTERNALIZABLE
     return flags
+  
+  def writeExternal(self):
+    raise Exception("Implement me !")
 
   def create_ClassData(self):
-    data_items = []
-    # items goes here 
-    data_items.append(
-      deserek.serTC_ENDBLOCKDATA()
+    data_items = 0
+    field_values = []
+    data = b''
+    for item in self.writeExternal():
+      data += deserek.do_serialize(item, skip_magic=1)
+      
+    field_values.append(
+      deserek.serTC_BLOCKDATA(size=len(data), value=data)
     )
-    obj = deserek.serListOfObj(
-      value=data_items
-    )
+    field_values.append(deserek.serTC_ENDBLOCKDATA())
     
+    obj = deserek.serClassDescValues(
+      _class_name=self._class_name,
+      externalContent=deserek.serListOfObj(value=field_values),
+    )
+    return obj
 
 
+
+class j_TestName(JavaExternalizableClass):
+  _class_name = "com.test.ObjectName"
+  _uid = 1234
+ 
+  def writeExternal(self):
+    yield deserek.serJavaString(value=self.value)
+  
+  
 
 class j_Integer(JavaSerializableClass):
   _class_name = 'java.lang.Integer'
@@ -204,7 +217,12 @@ if __name__ == '__main__':
 
   open("tmp_int1.bin","wb").write( deserek.do_serialize(x))
 
-  
+  o = j_TestName()
+  o.value = "foobar"
+  x = o.to_java()
+  print(x)
+  open("tmp_ob1.bin","wb").write( deserek.do_serialize(x))
+
   
   
   
