@@ -1,4 +1,7 @@
 __pycache__/*
 tmp*
 debug*
+demo*
 *.bin
+JavaSerializationTestSuit
+JavaSerializationTestSuit/*

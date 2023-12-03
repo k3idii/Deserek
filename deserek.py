@@ -1537,7 +1537,7 @@ if __name__ == '__main__':
       print("")
       print("obj = " + tmp.as_python())
       print("")
-      print("if 1==2:")
+      print("if 1==1:")
       print(" import sys")
       print(" bin_data = deserek.do_serialize(obj)")
       print(" open(sys.argv[1],'wb').write(bin_data)")
