@@ -68,8 +68,6 @@ def _dictify(o):
   return o # the value itself (should be primitive value)
 
 
-def _strval(o): # ugly way to do that :)
-  return json.dumps(o) 
 
 def _cname(o):
   return type(o).__name__
@@ -89,6 +87,14 @@ PRINT_PADDING='  '
 def _get_pad(i):
   return PRINT_PADDING * i
 
+def _strval(o): # ugly way to do that :)
+  return json.dumps(o) 
+
+def _int_to_str(v):
+  #return str(v)
+  #return f'0x{v:x}'
+  return f'{v}, # hex: {hex(v)} '
+
 def _pythonize(item, indent):
   #indent+=1
   # print(f"Pythonize {item}")
@@ -97,6 +103,8 @@ def _pythonize(item, indent):
     return can_py(indent)
   elif type(item) == bytes:
     return str(item)
+  elif type(item) == int:
+    return _int_to_str(item)
   else:
     return _strval(item)
   
@@ -1356,8 +1364,9 @@ class JavaDeserek:
     #time.sleep(1)
 
   def show_refs(self): # debug mode
+    print("### REFERENCE DUMP ### ")
     for k,v in self._ref.items():
-      print(f" {k:08x} => {_cname(v)}  # {self._ref_backlog[k]}")
+      print(f"## {k:08x} => {_cname(v)}  # {self._ref_backlog[k]}")
       if v.TC == javaConst.TC_CLASSDESC:
         x = f"DESC_>NAME: {v.className.value}"
       # items w/ classDesc 
@@ -1371,8 +1380,8 @@ class JavaDeserek:
       else:
         raise Exception("WTF 3")
        
-      print(f" -> {x}")
-    time.sleep(2)
+      print(f"## -> {x}")
+    #time.sleep(2)
 
 
 
@@ -1428,7 +1437,13 @@ def do_unserial(from_bytes=None, from_fd=None, **kw):
 
 
 
-def _unserial_wire(wire, silent=False, save_struct_to=None, save_format=None):
+def _unserial_wire(
+    wire, 
+    silent = False, 
+    save_struct_to = None, 
+    save_format = None,
+    showref = False
+  ):
   
   context = JavaDeserek()
 
@@ -1461,6 +1476,10 @@ def _unserial_wire(wire, silent=False, save_struct_to=None, save_format=None):
     if save_format == 'imhex':
       f.write(context.reader.output_imHex())
   
+  
+  if showref:
+    context.show_refs()
+
   return stuff
 
 
@@ -1486,6 +1505,7 @@ if __name__ == '__main__':
   parser.add_argument('--test',     help='Test stability of parsing', action="store_true", required=False)
   parser.add_argument("--format",   help="out format : yaml, json, python", required=False, default=None)
   parser.add_argument("--silent",   help="Silent mode", required=False, default=False, action="store_true")
+  parser.add_argument("--showref",  help="Show reference table", required=False, default=False, action="store_true")
   parser.add_argument("--save-struct-to", help="Save binary structure pattern to FILENAME", default=None, required=False)
   parser.add_argument("--save-struct-fmt", help="Save binary structure pattern FORMAT (json==default|imhex|kaitai)", default="json", required=False)
   
@@ -1498,10 +1518,11 @@ if __name__ == '__main__':
     bin1 = base64.b64decode(bin1)
 
   tmp = do_unserial(
-    from_bytes=bin1, 
-    silent=args.silent,
-    save_struct_to=args.save_struct_to,
-    save_format=args.save_struct_fmt,
+    from_bytes = bin1, 
+    silent = args.silent,
+    save_struct_to = args.save_struct_to,
+    save_format = args.save_struct_fmt,
+    showref = args.showref
   )
 
   if not args.test:
@@ -1513,7 +1534,13 @@ if __name__ == '__main__':
       print(json.dumps(_dictify(tmp)))
     elif args.format == 'python':
       print(_get_python_code_imports())
+      print("")
       print("obj = " + tmp.as_python())
+      print("")
+      print("if 1==2:")
+      print(" import sys")
+      print(" bin_data = deserek.do_serialize(obj)")
+      print(" open(sys.argv[1],'wb').write(bin_data)")
     elif args.format == "simple":
         print( yaml.dump( simplyfy_object(tmp) , width=1000) )  
     else:
