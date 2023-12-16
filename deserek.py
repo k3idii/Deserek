@@ -12,7 +12,6 @@ except:
   print("No loguru ! -> fallback to default")
   from logging import Logger
   logger = Logger("foo")
-  
 
 
 import yaml
@@ -1509,7 +1508,19 @@ if __name__ == '__main__':
   parser.add_argument("--save-struct-to", help="Save binary structure pattern to FILENAME", default=None, required=False)
   parser.add_argument("--save-struct-fmt", help="Save binary structure pattern FORMAT (json==default|imhex|kaitai)", default="json", required=False)
   
+  parser.add_argument(
+    "--log-level",
+    help = "set logLevel to value (info|debug|warning|error)",
+    default="debug",
+  )
+
   args = parser.parse_args()
+
+  if args.silent:
+    # SILENT MODE 
+    logger.remove()
+
+
   
   bin1 = open(args.filename,"rb").read()
     
@@ -1527,7 +1538,7 @@ if __name__ == '__main__':
 
   if not args.test:
     if args.format is None:
-      print("DONE !")
+      print(" (no outpu format specified, but ... ) DONE !")
     elif args.format == 'yaml':
       print(yamlify(tmp))
     elif args.format == 'json':
