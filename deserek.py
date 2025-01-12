@@ -273,17 +273,18 @@ class _abs_serBasicObject(_abs_serBareObj):
   def _args_to_python(self, indent=0): 
     pad = _get_pad(indent)
     #print(f" {_cname(self)} -> to python {self._fields}" )
-    if len(self._fields) > 0:
-      ret_str = f"\n"
-      for key in self._fields:
-        val = _pythonize(getattr(self, key), indent)
-        ret_str += f'{pad}{key}={val},\n'
-      ret_str += f"{pad}" 
-      return ret_str
-      
-    else:
+    if len(self._fields) <= 0:
       return ""
-    
+    #else:
+    ret_str = f"\n"
+    for key in self._fields:
+      #ret_str += "fooo foo" + str(key)
+      val = _pythonize(getattr(self, key), indent)
+      ret_str += f'{pad}{key}={val},\n'
+    ret_str += f"{pad}" 
+    return ret_str
+      
+      
   def to_dict(self):
     fields = OrderedDict()
     for key in self._fields:
@@ -1448,30 +1449,28 @@ def _unserial_wire(
 
   wire.set_endian(bytewirez.ENDIAN_BIG)
   context.attach_wire(wire)
-  context.reader = bytewirez.StructureReader(wire, logger = logger)
+  context.reader = bytewirez.StructureReader(wire)
   #context.reader.logger = logger
   if silent:
     context._silent = True
-    context.reader._silent = True
+    
+  #context.reader.will_read("magic")
+  #tmp = wire.readn(2)
+  tmp = context.reader.field("magic").readn(2)
+  assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC), f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC} "
   
-  with context.reader.start_object("DATA"):
-    
-    context.reader.will_read("magic")
-    tmp = wire.readn(2)
-    assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC), f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC} "
-    
-    context.reader.will_read("version")
-    tmp = wire.read_word() 
-    assert tmp == javaConst.STREAM_VERSION, "Invalid VERSION"
-    
-    context.reader.will_read("contents")
-    with context.reader.start_list():
-      stuff = read_contents(context)
+  context.reader.will_read("version")
+  tmp = wire.read_word() 
+  assert tmp == javaConst.STREAM_VERSION, "Invalid VERSION"
+  
+  context.reader.will_read("contents")
+  with context.reader.start_list():
+    stuff = read_contents(context)
   
   if save_struct_to and save_format:
     f = open(save_struct_to,'w')
     if save_format == 'json':
-      json.dump(context.reader.get_struct() , f)
+      bytewirez.custom_json_serializer(context.reader.get_root_element(), f)
     if save_format == 'imhex':
       f.write(context.reader.output_imHex())
   
@@ -1493,8 +1492,6 @@ def simplyfy_object(j_obj):
 def _get_python_code_imports():
   return "\n".join([f"import {mod}" for mod in ["deserek", "javaConst"] ])
                     
-                    
-
 
 
 if __name__ == '__main__':
@@ -1521,9 +1518,13 @@ if __name__ == '__main__':
     logger.remove()
 
 
-  
-  bin1 = open(args.filename,"rb").read()
-    
+  try:
+    bin1 = open(args.filename,"rb").read()
+  except Exception as ex:
+    print(f"Fail to open file {args.filename}")
+    print(f"  Reason : {ex}")
+    exit(99)
+
   if b'rO0' == bin1[:3] : 
     logger.warning("[HEURISTIC] Payload is base64 :)")
     bin1 = base64.b64decode(bin1)
