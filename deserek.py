@@ -1456,7 +1456,7 @@ def _unserial_wire(
     
   #context.reader.will_read("magic")
   #tmp = wire.readn(2)
-  tmp = context.reader.field("magic").readn(2)
+  tmp = context.reader.will_read("magic").readn(2)
   assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC), f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC} "
   
   context.reader.will_read("version")
@@ -1470,7 +1470,7 @@ def _unserial_wire(
   if save_struct_to and save_format:
     f = open(save_struct_to,'w')
     if save_format == 'json':
-      bytewirez.custom_json_serializer(context.reader.get_root_element(), f)
+      bytewirez.structure_to_html_viewer(context.reader, into_file=f)
     if save_format == 'imhex':
       f.write(context.reader.output_imHex())
   
