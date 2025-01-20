@@ -31,6 +31,20 @@ class JavaLikeObject:
     raise Exception("Implement me - I am interface")
 
 
+class j_String(JavaLikeObject):
+  value = ''
+  
+  def __init__(self,value):
+    self.value=value
+
+  def to_deserek(self):
+    return deserek.serTC_STRING(
+      value=deserek.serJavaString(
+        value=self.value,
+      ),
+    )
+  
+
 class JavaBasicField():
   value = None
   typecode = -1
@@ -86,7 +100,6 @@ class JavaObjectField():
     return self.value.to_deserek() # objecr expeced here
 
 
-
 class JavaStringField(JavaObjectField):
   object_name = "Ljava/lang/String;"
 
@@ -95,13 +108,7 @@ class JavaStringField(JavaObjectField):
     self.value = ""
 
   def for_classData(self):
-    return deserek.serTC_STRING(
-      value=deserek.serJavaString(
-        value=self.value,
-      ),
-    )
-
-
+    return j_String(self.value).to_deserek()
 
 class JavaBinaryObjectWriter():
   wire : deserek.bytewirez.Wire = None
