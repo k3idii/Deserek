@@ -4,6 +4,9 @@ from collections import OrderedDict
 import base64 
 import struct
 
+from contextlib import contextmanager
+
+
 import bytewirez.bytewirez as bytewirez
 
 try:
@@ -39,7 +42,7 @@ def _get_sc_flags():
 def _check_flag(name, value):
   return getattr(javaConst, name) & value
   
-def _classDescFlags_to_fields(flg):
+def _classDescFlags_to_data_elements(flg):
   rv = []
   if flg & javaConst.SC_SERIALIZABLE and flg & javaConst.SC_EXTERNALIZABLE:
     raise Exception("FLAG CONFLICT !")
@@ -92,7 +95,7 @@ def _strval(o): # ugly way to do that :)
 def _int_to_str(v):
   #return str(v)
   #return f'0x{v:x}'
-  return f'{v}, # hex: {hex(v)} '
+  return f'{v}, # hex: {hex(v)} chr:{chr(v)if v>30 and v<128 else "x"}'
 
 def _pythonize(item, indent):
   #indent+=1
@@ -186,7 +189,7 @@ class serListOfObj(_abs_serBareObj):
     if include_size is not None:
       ctx.wire.write_fmt(include_size, len(self.value))
     for i, item in enumerate(self.value):
-      ctx.log_inf(f" WRITE item {i+1} of {len(self.value)}")
+      ctx.log_inf(f" WRITE item {i+1} of {len(self.value)} / {item}")
       item.write(ctx)
 
   def _args_to_str(self):
@@ -644,6 +647,7 @@ class serClassDescValues(_abs_serBasicObject):
   _fields = ['_class_name']
   
   def setup_from_kwargs(self):
+    print("KWARGS", self._kwargs)
     self._class_name = self._kwargs['_class_name']
     # fix variable property list
     # possibly can handle that using orderedDict, tec
@@ -651,18 +655,35 @@ class serClassDescValues(_abs_serBasicObject):
       self._fields.append(f)
   
   # -----8<------ 
-    
+      
+
+      
   def write_obj(self, ctx):
+    order_of_elements = [ 'serialdata', 'externalContent', 'objectAnnotation']
+    if 'externalContent' in self._fields and 'serialdata' in self._fields:
+      raise Exception("Cant have both serialization types")
+
     ## print(self._fields, "VS", self.__tmp)
     ctx.log_dbg(f"Will write : {self._fields}")
-    for item in self._fields:
-      if item.startswith('_'):
-        ctx.log_dbg(f"SKIP: {item}")
+    for element_name in order_of_elements:
+      if element_name not in self._fields:
+        ctx.log_dbg(f" ? Don't have {element_name}")
         continue
-      func_name = f"_write_item__{item}"
+      #item = self._fields[element_name]
+    #for item in self._fields:
+    #  if item.startswith('_'):
+    ##    ctx.log_dbg(f"SKIP: {item}")
+    #    continue
+      
+      func_name = f"_write_item__{element_name}"
       func_ptr  = getattr(self, func_name)
-      ctx.log_inf(f"WRITE {self._class_name}::{item}")
+      ctx.log_inf(f"WRITE {self._class_name}::{element_name}")
       func_ptr(ctx)
+    
+
+
+      
+
   
   def _write_item__externalContent(self, ctx):
     self.externalContent.write(ctx)
@@ -688,20 +709,21 @@ class serClassDescValues(_abs_serBasicObject):
       # nothing to read 
       return 
     
-    fields = _classDescFlags_to_fields(cdesc.classDescFlags.value)
-    self.__tmp = fields
+    elements = _classDescFlags_to_data_elements(cdesc.classDescFlags.value)
+    self.__tmp = elements
     
-    for item in fields:
+    ctx.log_inf(f"Will read data sections : {elements}")
+    for item in elements:
       setattr(self, item, None)
       func_name = f"_read_item__{item}"
       func_ptr  = getattr(self, func_name)
-      ctx.log_dbg(f"Reading classData [{item}] using [{func_name}]")
+      ctx.log_inf(f">> Reading classData [{item}] using [{func_name}]")
       #with ctx.scope(f"Reading values {self._class_name}::{item}"):
       ctx.reader.will_read(item)
       #with ctx.reader.start_list(item):
       func_ptr(ctx, cdesc)
       self._fields.append(item)
-    
+      ctx.log_inf(f"<< Reading DONE of [{item}] using [{func_name}]")
 
       
   def _read_item__externalContent(self, ctx, _):
@@ -724,7 +746,7 @@ class serClassDescValues(_abs_serBasicObject):
     field_names = ' | '.join(a.fieldName.value for a in cdesc.fields)
     ctx.log_dbg(f"Reading fields : (count:{cnt}) [{field_names}]")
     for i,f in enumerate(cdesc.fields):
-      ctx.log_dbg(f"read field {i+1} of {cnt} (`{self._class_name}::{f.fieldName.value}`)")
+      ctx.log_inf(f">> Read Value [ {i+1} of {cnt}]  {self._class_name} -> {f.fieldName.value} ")
       ctx.log_dbg(f"-> Field type:{f.typecode}/{chr(f.typecode)} name:{f.fieldName.value}")
       item = _read_single_typecode_value(ctx, f.typecode)
       yield item
@@ -772,7 +794,7 @@ class serTC_OBJECT(_abs_serTCValue):
       
   def write_obj(self, ctx):
     for key in self._fields:
-      ctx.log_inf(f"WRITE ITEM: {key}")
+      ctx.log_inf(f"WRITE ITEM: {self.__class__.__name__} :: {key}")
       getattr(self, key).write(ctx)
 
 
@@ -791,7 +813,8 @@ class serTC_OBJECT(_abs_serTCValue):
       field_names = [ x.fieldName.value for x in cdesc.fields ][::-1]
       
       class_values = []
-      for values_src in _classDescFlags_to_fields(cdesc.classDescFlags.value):
+      for values_src in _classDescFlags_to_data_elements(cdesc.classDescFlags.value):
+        
         vals = getattr(cval, values_src, None)
         for item in vals:        
           val = item.get_simple_value()
@@ -852,7 +875,7 @@ class serTC_OBJECT(_abs_serTCValue):
 
 
 def _read_single_typecode_value(ctx, tc):
-  ctx.log_inf(f"Read item type {tc}/{chr(tc)} ...")
+  ctx.log_inf(f"Read item typecode: {tc}/{chr(tc)} ...")
   if tc in javaConst.prim_typecode:
     return serValuePrimitive(ctx=ctx, _typecode_hint=tc)
     # that is ok ;)
@@ -896,6 +919,7 @@ class serValuePrimitive(_abs_serBasicObject):
     ctx.log_inf(f"Read [{self._typecode_hint}] -> [{self._format}]")
     ctx.reader.will_read('value')
     self.value = ctx.wire.read_fmt(self._format)
+    ctx.log_dbg(f"> Read value from wire: {self.value}")
 
 
   def write(self, ctx):
@@ -1242,11 +1266,11 @@ def read_blockdata_uintill_end(ctx, info='?'):
 
 
 def read_classAnnotation(ctx, info="??"): # or object 
-  ctx.log_inf("classAnnotation")
+  ctx.log_inf("READ classAnnotation")
   return read_blockdata_uintill_end(ctx, info)
   
 def read_objectAnnotation(ctx, info="?"):
-  ctx.log_inf("objectAnnotation")
+  ctx.log_inf("READ objectAnnotation")
   return read_blockdata_uintill_end(ctx, info) 
 
 
@@ -1304,18 +1328,16 @@ def try_read_stuff(ctx:object, frendly_name:str, options:list):
   #names = list(x.__name__ for x in options)
   count = len(options)
   ctx.log_dbg(f"TRY: {frendly_name} (candidates count:{count})")
-  for i, fnc in enumerate(options):
-    try:
-      ctx.log_dbg(f"try read no:{i+1:2}/{count} -> Try func:{fnc.__name__}")
-      val = fnc(ctx)
-      ctx.log_dbg(f"++ GOOD: {fnc} ")
-      return val
-    except ReadCheckFailed as ex:
-      ctx.log_dbg(f" -> FAIL: {fnc.__name__} (reason: {str(ex)})")
-  raise ReadCheckFailed(f"Fail to read - out of options at {frendly_name}")
-
-
-
+  with ctx.inc_depth():
+    for i, fnc in enumerate(options):
+      try:
+        ctx.log_dbg(f"try read no:{i+1:2}/{count} -> Try func:{fnc.__name__}")
+        val = fnc(ctx)
+        ctx.log_inf(f"++ Mach! Reading {fnc} ")
+        return val
+      except ReadCheckFailed as ex:
+        ctx.log_dbg(f" -> FAIL: {fnc.__name__} (reason: {str(ex)})")
+    raise ReadCheckFailed(f"Fail to read - out of options at {frendly_name}")
 
 
 
@@ -1383,22 +1405,30 @@ class JavaDeserek:
       print(f"## -> {x}")
     #time.sleep(2)
 
+  @contextmanager
+  def inc_depth(self):
+    try:
+      self._depth += 1
+      yield 1
+    finally:
+      self._depth -= 1
 
 
   def log_inf(self, msg):
     #self.reader.log_inf(msg)
     if not self._silent:
-      logger.info(msg)
+      logger.info(' '*self._depth + msg)
 
   def log_dbg(self, msg):
     #self.reader.log_dbg(msg)
     if not self._silent:
-      logger.debug(msg)
+      logger.debug(' '*self._depth +msg)
 
   def log_war(self, msg):
     #self.reader.log_war(msg)
     if not self._silent:
-      logger.warning(msg)
+      logger.warning(' '*self._depth +msg)
+
 
 
 

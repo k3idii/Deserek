@@ -1,6 +1,8 @@
+from typing import Any
 import deserek
 import javaConst
-from collections import OrderedDict
+from contextlib import contextmanager
+
 
 WELL_KNOWN = {
   "java.util.HashMap" : 362498820763181265,
@@ -25,35 +27,119 @@ HandleID = __HandleIdGeneratorClass()
 
 
 class JavaLikeObject:
-  def to_java(self):
+  def to_deserek(self):
     raise Exception("Implement me - I am interface")
 
-class SingleValue:
-  _val = None
-  def __init__(self, value=None):
-    if value:
-      self._val = value 
 
+class JavaBasicField():
+  value = None
+  typecode = -1
+  name = None
+  
+  def __init__(self, name, typecode, default=0):
+    self.typecode = typecode 
+    self.name = name
+    if default is not None:
+      self.value = default
+  
+  def __repr__(self) -> str:
+    return f"BasicField : {self.name} -> {self.typecode} / {self.value}"
+  
+  def for_classDesc(self):
+    return deserek.serPrimitiveDesc(
+      typecode = ord(self.typecode),
+      fieldName = deserek.serJavaString(value=self.name)
+    )
 
-
-class JavaStringValue(JavaLikeObject, SingleValue):
-  def to_java(self):
-    return deserek.serJavaString(value=self._val)
-
-class JavaStringObject(JavaLikeObject, SingleValue):
-  def to_java(self):
-    return deserek.serTC_STRING(
-      value = deserek.serJavaString(
-        value = self._val 
+  def for_classData(self):
+    return deserek.serValuePrimitive(
+      _typecode_hint=ord(self.typecode),
+      value=self.value
       )
+ 
+ 
+
+class JavaObjectField():
+  typecode = 'L' # object
+  value = None
+  name = None
+  object_name = "Ljava/lang/Object;"
+
+  def __init__(self, name, object_name=None):
+    if object_name:
+      self.object_name = object_name 
+    self.name = name
+  
+  def __repr__(self) -> str:
+    return f"ObjectField : {self.name} -> {self.value}"
+    
+  def for_classDesc(self):
+    return deserek.serObjectDesc(
+      typecode = ord(self.typecode),
+      fieldName = deserek.serJavaString(value=self.name),
+      className1=deserek.serTC_STRING(
+        value=deserek.serJavaString(value=self.object_name),
+      ),
+    )
+  
+  def for_classData(self):
+    return self.value.to_deserek() # objecr expeced here
+
+
+
+class JavaStringField(JavaObjectField):
+  object_name = "Ljava/lang/String;"
+
+  def __init__(self, name):
+    self.name = name
+    self.value = ""
+
+  def for_classData(self):
+    return deserek.serTC_STRING(
+      value=deserek.serJavaString(
+        value=self.value,
+      ),
     )
 
 
-class JavaField(JavaLikeObject):
-  _class_name = ''
-  _value = ''
-  _typecode = -1
+
+class JavaBinaryObjectWriter():
+  wire : deserek.bytewirez.Wire = None
   
+  def __init__(self):
+    self.wire = deserek.bytewirez.Wire()
+
+  def writeInt(self,v):
+    self.wire.write_dword(v)
+
+
+
+class JavaObjectWriter():
+  item_stack: list = None
+
+  def __init__(self):
+    self.item_stack = []
+
+  def write(self, item):
+    self.item_stack.append(item)
+
+  def get_items(self):
+    return self.item_stack
+  
+  @contextmanager
+  def binary_block(self):
+    obj = JavaBinaryObjectWriter()
+    try:
+      yield obj
+    finally:
+      blob = obj.wire.dump()
+      self.write(
+        deserek.serTC_BLOCKDATA(
+          size=len(blob),
+          value=blob,
+        )
+      )
+
 
 class JavaSerializableClass(JavaLikeObject):
   _class_name = None
@@ -61,26 +147,79 @@ class JavaSerializableClass(JavaLikeObject):
   _annotation = None
   _super_class = None
   _fields = None
-  _has_write_method = False 
+  _super_class_list = None
+  _standard_fields_values = None
+
+  writeObject = None # override this to implement cutom writer
   
   def __init__(self,**kw):
     if self._fields is None:
-      self._fields = {}
+      self._fields = []
+
+    self._fields = self._init_fields() 
+
+    self._super_class_list = []
+    c = self
+    while c != None:
+      self._super_class_list.append(c)
+      c = c._super_class
 
     for key,val in kw.items():
       setattr(self, key, val)
     self.constructor()
+    print(f"Object {self.__class__.__name__} / {self._class_name} initialized !")
   
-    
+  def _init_fields(self):
+    raise Exception("MUST HAVE FIELDS !")
+  
   def constructor(self):
     pass 
   
+  def DISABLED__getattr__(self, __name: str) -> Any:
+    print("GETATTR",__name)
+    for fld in self._field_generator():
+      if fld.name == __name:
+        return fld
+
+  def get(self, __name:str) -> Any:
+    for fld in self._field_generator():
+      if fld.name == __name:
+        return fld.value
+
+
+  def x__getattr__(self, __name: str) -> Any:
+    print("GETATTR",__name)
+    for fld in self._field_generator():
+      if fld.name == __name:
+        return fld.value
+
+  def __setattr__(self, __name: str, __value: Any) -> None:
+    print(f"setting [[{self.__class__.__name__}]] -> [[{ __name}]] to {__value}")
+    if hasattr(self,__name):
+      self.__dict__[__name] = __value
+    else:
+      for f in self._field_generator():
+        if f.name == __name:
+          f.value = __value
+    
+    
   def _get_flags(self):
     flags = 0 | javaConst.SC_SERIALIZABLE
-    if self._has_write_method:
+    if callable(self.writeObject):
       flags = flags | javaConst.SC_WRITE_METHOD
     return flags
-          
+  
+
+
+  def _field_generator(self):
+    print(">FieldGenrator", self._super_class_list)
+    for c in self._super_class_list[::-1]:
+      print(f" Getting fields for class {c.__class__.__name__} {c._fields}")
+      for f in c._fields:
+        print(f"  Field: {f}")
+        yield f
+    print("<FieldGenerator")
+
   def create_ClassDesc(self):
     if self._uid is None:  
       self._uid = WELL_KNOWN.get(self._class_name, None)
@@ -97,30 +236,12 @@ class JavaSerializableClass(JavaLikeObject):
       su_class = self._super_class().create_ClassDesc()
     
     list_of_fields = []
-    for name, type_hint in self._fields.items():
-      print(f"ClassDesc-field:{name}")
-      #assert f in self._field_types, f"Need field type definition for {f}"
-      #type_hint = self._field_types[f]
-      #value = getattr(self, name)
-
-      if type_hint in javaConst.prim_typecode_chr:
-        #    primitiveDesc OR objectDesc,
-        list_of_fields.append(
-          deserek.serPrimitiveDesc(
-            typecode = ord(type_hint),
-            fieldName = deserek.serJavaString(value=name)
-          )
-        )
-      elif type_hint == 'string':
-        list_of_fields.append(
-          deserek.serJavaString(value="Ljava/lang/String;")
-        )
-      elif type_hint in javaConst.obj_typecode_chr:
-        raise Exception("That stuff is not yet implemented XD")
-      else:
-        raise Exception(f"Invalid typecode -> {type_hint}")
-    
-  
+    for field in self._fields: # self._field_generator():
+      print(f" > ClassDesc-field:{field}")
+      list_of_fields.append(
+        field.for_classDesc(),
+      )
+      
     obj = deserek.serTC_CLASSDESC(
       className = deserek.serJavaString( value=self._class_name ),
       UID =deserek.serUID( value=self._uid ),
@@ -132,36 +253,46 @@ class JavaSerializableClass(JavaLikeObject):
     )
     return obj
 
-  def create_ClassData(self):
-    data_items = 0
+  def prepare_standard_fields_values(self,filter=None):
     field_values = []
-    for name, type_hint in self._fields.items():
-      print(f"ClassData-field:{name}")
-      value = getattr(self, name)
-      if type_hint in javaConst.prim_typecode_chr:
-        field_values.append(
-          deserek.serValuePrimitive(
-            _typecode_hint=ord(type_hint),
-            value=value,
-        ))
-      elif type_hint == 'string':
-        field_values.append(
-          deserek.serTC_STRING(
-                    value=deserek.serJavaString(
-                      value=value,
-                      ),
-                    ),
+    for field in self._field_generator():
+      print(f" > ClassData-field:{field}")
+      if filter:
+        if field.name not in filter:
+          print(f"    ~ SKIP ")
+          continue
+      field_values.append(field.for_classData())
+    return field_values
+
+  def defaultWriteObject(self): # mimic Java style  writing
+    self._standard_fields_values = self.prepare_standard_fields_values()
+
+
+  def create_ClassData(self):
+    kwargs = {}
+    if not callable(self.writeObject) :
+      kwargs['serialdata'] = deserek.serListOfObj(
+        value = self.prepare_standard_fields_values()
+      )
+    else:
+      wr = JavaObjectWriter()
+      self.writeObject(wr)
+
+      kwargs['objectAnnotation'] = deserek.serListOfObj(
+        value = wr.get_items() + [deserek.serTC_ENDBLOCKDATA()]
+      )
+      if self._standard_fields_values:
+        kwargs['serialdata'] = deserek.serListOfObj(
+          value = self._standard_fields_values
         )
-      else:
-        raise Exception("Not implemented !")
+    print(">> Write values ", kwargs)
     obj = deserek.serClassDescValues(
-          _class_name=self._class_name,
-          serialdata=deserek.serListOfObj(value=field_values),
-          )
-    
+      _class_name=self._class_name,
+      **kwargs,
+    )
     return obj
     
-  def to_java(self):
+  def to_deserek(self):
     obj = deserek.serTC_OBJECT(
       classDesc = self.create_ClassDesc(),
       handle    = deserek.serHandle(value=HandleID.next()),
@@ -211,31 +342,7 @@ class j_TestObjectName(JavaExternalizableClass):
     yield deserek.serJavaString(value=self.value)  
   
 
-class j_simpleInteger(JavaSerializableClass):
-  '''
-  Integer that don't extend java.lang.Number - but works
-  '''
-  _uid = 1360826667806852920
-  _class_name = 'java.lang.Integer'
-  _fields = ['value']
-  _field_types = {
-    'value' : 'I'
-  }
 
-class j_java_lang_number(JavaSerializableClass):
-  _uid = -8742448824652078965
-  _class_name = 'java.lang.Number'
-  _fileds = {
-    'value' : "I"
-  }
-
-class j_java_lang_integer(JavaSerializableClass):
-  _uid = 1360826667806852920
-  _class_name = 'java.lang.Integer'
-  _super_class = j_java_lang_number
-  _fields = {
-    'value' : 'I'
-  }
 
 
 
@@ -243,55 +350,85 @@ class j_java_lang_integer(JavaSerializableClass):
 class j_TestCustomClass(JavaSerializableClass):
   _class_name = "customclass"
   _uid = 1337
-  _fields = ['foo']
-  _field_types = {
-    'foo' : ''
-  }
-  _fields = {
-    'foo' : "Object"
-  }
+  def _init_fields(self):
+    return [
+      JavaBasicField("foo", "I"),
+      JavaStringField("sss"),
+      JavaObjectField("obj1")
+    ]
 
 
+class j_TestCustomClass2(JavaSerializableClass):
+  _class_name = "customclass2"
+  _uid = 2337
+  def _init_fields(self):
+    return  [
+      JavaBasicField("foo", "I"),
+      JavaStringField("sss"),
+    ]
+  
+  def writeObject(self, wr: JavaObjectWriter):
+    self.defaultWriteObject()
+    with wr.binary_block() as binwr:
+      binwr.writeInt(0xff)
+    
+    i1 = j_simpleInteger()
+    i1.value = 0xeeff
+    wr.write(i1.to_deserek())
+    
 
 
 if __name__ == '__main__':
   import sys
+  import javaCommons 
+
   sys.argv.append('3') # 
   test_no = int(sys.argv[1])
 
   if test_no == 1:
-    o = j_Integer()
-    o.value = -4
+    o = javaCommons.j_simpleInteger()
+    o.value = 31337
 
-    x = o.to_java()
+    x = o.to_deserek()
     print(x)
     print(x.as_python() )
 
     open("tmp_int1.bin","wb").write( deserek.do_serialize(x))
 
   if test_no == 11:
-    o = j_java_lang_integer()
+    o = javaCommons.j_java_lang_integer()
     o.value = 42
-    j = o.to_java()
+    j = o.to_deserek()
     print(j)
     open('tmp_int42.bin',"wb").write( deserek.do_serialize(j))
 
 
-  if test_no == 2:
-    o = j_TestName()
-    o.value = "foobar"
-    x = o.to_java()
-    print(x)
-    open("tmp_ob1.bin","wb").write( deserek.do_serialize(x))
-
   if test_no == 3:
+    tmp = javaCommons.j_java_lang_integer()
+    tmp.value = 33
+
     o = j_TestCustomClass()
+    o.foo = 8765123
+    o.sss = "Test"
+    o.obj1 = tmp
+
     print(o)
-    x = o.to_java()
+    x = o.to_deserek()
     print(x)
     print(x.as_python())
-    
-  
+    open('tmp_custom.bin',"wb").write( deserek.do_serialize(x))
+
+  if test_no == 4:
+    o = j_TestCustomClass2()
+    o.foo = 0xffff
+    o.sss = "Test"
+
+    print(o)
+    x = o.to_deserek()
+    print(x)
+    open('tmp_custom2.bin',"wb").write( deserek.do_serialize(x))
+
+   
   
   
   
