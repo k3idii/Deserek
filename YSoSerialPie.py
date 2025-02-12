@@ -39,17 +39,19 @@ class j_java_net_URL__slim(JavaSerializableClass):
 
 
 
+
+
 def YsoSerial_URL(host):
   h = j_HashMap()
   i1 = j_simpleInteger()
   i1.value = 42
+
   u1 = j_java_net_URL()
   u1.hashCode = -1
   u1.port = 80
   u1.protocol = "https"
   u1.authority = host
   u1.file = "a"
-
   h.MAP[u1] = i1
 
   return deserek.do_serialize(h.to_deserek())
