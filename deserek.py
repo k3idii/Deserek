@@ -433,14 +433,14 @@ class serJavaString(_abs_serSingleValue):
     
     ctx.reader.will_read("value")
     tmp = ctx.wire.readn(size)
-    self.value = tmp.decode()
+    self.value = tmp #.decode()
     
     ctx.log_dbg(f"++ Java::String ({size}){self.value}")
   
   def write(self, ctx):
     ctx.log_inf("JavaString")
     ctx.wire.write_word( len(self.value) )
-    ctx.wire.write(self.value.encode())
+    ctx.wire.write(self.value) #.encode())
 
   
 class serJavaLongString(_abs_serSingleValue):
@@ -743,7 +743,7 @@ class serClassDescValues(_abs_serBasicObject):
     if cnt == 0:
       ctx.log_dbg("Read values : ZERO fields to read ")
       return
-    field_names = ' | '.join(a.fieldName.value for a in cdesc.fields)
+    field_names = ' | '.join(str(a.fieldName.value) for a in cdesc.fields)
     ctx.log_dbg(f"Reading fields : (count:{cnt}) [{field_names}]")
     for i,f in enumerate(cdesc.fields):
       ctx.log_inf(f">> Read Value [ {i+1} of {cnt}]  {self._class_name} -> {f.fieldName.value} ")
@@ -986,7 +986,7 @@ class serTC_ARRAY(_abs_serTCValue):
     
     type_str = cdesc.className.value # TODO: FIX REFERECNCE !!!
     
-    assert type_str[0] == '[', "WTF is that array !?"
+    assert type_str[0] == '[', f"WTF is that array !? {type_str}"
     self.value = serListOfObj()
     class_name = cdesc.className.value
     typecode = ord(class_name[1])
@@ -1433,7 +1433,7 @@ class JavaDeserek:
 
 
 
-def do_serialize( stuff, skip_magic=False, silent=False):
+def do_serialize(stuff, skip_magic=False, silent=False):
   context = JavaDeserek()
   if silent:
     context._silent = True
@@ -1518,10 +1518,66 @@ def simplyfy_object(j_obj):
 
 
 
+def _gen_required_py_imports(tmp):
+  return '\n'.join( f"import {mod}" for mod in ["deserek", "javaConst"] )
+  
+def _perform_roundtrip_test(tmp):
+  
+  print("*** TEST 1 : serialization : ")
+  #time.sleep(2)    
+  bin2 = do_serialize(tmp)
 
-def _get_python_code_imports():
-  return "\n".join([f"import {mod}" for mod in ["deserek", "javaConst"] ])
-                    
+  print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin2)} (saved as tmp2.bin/yml)")
+  #open("tmp2.bin","wb").write(bin2)
+  #open("tmp2.yml","w").write(yamlify(tmp))
+  
+  print(" ?? check if binary 1 & 2 format is identiacal ")
+  assert bin1 == bin2, "Serialization 1->2 not stable"
+  print(" ++ OK \n")
+
+
+  #time.sleep(2)
+  print("*** TEST 2 : Unserialize bin2 ")
+  
+  tmp3 = do_unserial(bin2)
+  print(" ++ OK \n")
+  
+  print(" *** TEST 3 : serialization from python code ... ")
+  #time.sleep(2)
+  
+  MODULENAMEPREFIX = ''
+  eval_str = 'tmp4 = {0}'.format( tmp.as_python() )
+  print(eval_str)
+
+  locals = {}
+  exec("import javaConst\n" + eval_str, 
+    dict(
+      deserek=__import__(__name__)
+    ),
+    locals
+  )
+  print(locals)
+  tmp4 = locals['tmp4']
+  print(" -> Serialize from tmp4 variable")
+  bin4 = do_serialize(tmp4)
+  print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin4)} ")
+  #open("tmp4.bin","wb").write(bin4)
+  #open("tmp4.yml","w").write(yamlify(tmp))
+  print(" ?? check if binary 1 & 4 format is identiacal ")
+  assert bin1 == bin4, "Serialization 1-4 not stable"
+
+
+  print("\n\nIf you see this message means that (de)serializator is stable !\n\n")
+
+def print_python_stub(unserialized_stuff):
+  print(_gen_required_py_imports())
+  print("")
+  print("obj = " + unserialized_stuff.as_python())
+  print("")
+  print("if 1==1:")
+  print(" import sys")
+  print(" bin_data = deserek.do_serialize(obj)")
+  print(" open(sys.argv[1],'wb').write(bin_data)")
 
 
 if __name__ == '__main__':
@@ -1559,78 +1615,29 @@ if __name__ == '__main__':
     logger.warning("[HEURISTIC] Payload is base64 :)")
     bin1 = base64.b64decode(bin1)
 
-  tmp = do_unserial(
+  unserialized_stuff = do_unserial(
     from_bytes = bin1, 
     silent = args.silent,
     save_struct_to = args.save_struct_to,
     save_format = args.save_struct_fmt,
     showref = args.showref
   )
+  
+  if args.test:
+    _perform_roundtrip_test(unserialized_stuff)
 
-  if not args.test:
+  else:
     if args.format is None:
       print(" (no outpu format specified, but ... ) DONE !")
     elif args.format == 'yaml':
-      print(yamlify(tmp))
+      print(yamlify(unserialized_stuff))
     elif args.format == 'json':
-      print(json.dumps(_dictify(tmp)))
+      print(json.dumps(_dictify(unserialized_stuff)))
     elif args.format == 'python':
-      print(_get_python_code_imports())
-      print("")
-      print("obj = " + tmp.as_python())
-      print("")
-      print("if 1==1:")
-      print(" import sys")
-      print(" bin_data = deserek.do_serialize(obj)")
-      print(" open(sys.argv[1],'wb').write(bin_data)")
+      print_python_stub(unserialized_stuff)
     elif args.format == "simple":
-        print( yaml.dump( simplyfy_object(tmp) , width=1000) )  
+        print( yaml.dump( simplyfy_object(unserialized_stuff) , width=1000) )  
     else:
       raise Exception("Unknown output format !")
-    
-  else:    
-    print(" > UNSERILIZED Succesfully !")
-    print("*** TEST 1 : serialization : ")
-    #time.sleep(2)    
-    bin2 = do_serialize(tmp)
 
-    print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin2)} (saved as tmp2.bin/yml)")
-    open("tmp2.bin","wb").write(bin2)
-    open("tmp2.yml","w").write(yamlify(tmp))
-    
-    print(" ?? check if binary 1 & 2 format is identiacal ")
-    assert bin1 == bin2, "Serialization 1-2 not stable"
-    print(" ++ OK \n")
-
-
-    #time.sleep(2)
-    print("*** TEST 2 : Unserialize bin2 ")
-    
-    tmp3 = do_unserial(bin2)
-    print(" ++ OK \n")
-    
-    print(" *** TEST 3 : serialization from python code ... ")
-    #time.sleep(2)
-    
-    tmp4 = None
-    MODULENAMEPREFIX = ''
-    eval_str = 'tmp4 = {0}'.format( tmp.as_python() )
-    
-    open("tmp3.py","w").write(
-      "import javaConst\nfrom deserek import *\n\n" + eval_str 
-    )
-    print(" -> Save do tmp3.py")
-    exec(eval_str)
-    
-    print(" -> Serialize from tmp4 variable")
-    bin4 = do_serialize(tmp4)
-    print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin4)} ")
-    open("tmp4.bin","wb").write(bin4)
-    open("tmp4.yml","w").write(yamlify(tmp))
-    print(" ?? check if binary 1 & 4 format is identiacal ")
-    assert bin1 == bin4, "Serialization 1-4 not stable"
-
-
-    print("\n\nIf you see this message means that (de)serializator is stable !\n\n")
-
-
+             
