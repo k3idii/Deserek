@@ -4,7 +4,7 @@
 
 baseWireHandle = 0x7E0000
 
-STREAM_MAGIC = 'ac ed'
+STREAM_MAGIC_HEX = 'ac ed'
 STREAM_VERSION = 5
 
 

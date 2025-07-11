@@ -1441,7 +1441,7 @@ def do_serialize(stuff, skip_magic=False, silent=False):
   context.wire.set_endian(bytewirez.ENDIAN_BIG)
   
   if not skip_magic:
-    context.wire.write(bytes.fromhex(javaConst.STREAM_MAGIC))
+    context.wire.write(bytes.fromhex(javaConst.STREAM_MAGIC_HEX))
     context.wire.write_word(javaConst.STREAM_VERSION)
   
   stuff.write(context)
@@ -1487,7 +1487,7 @@ def _unserial_wire(
   #context.reader.will_read("magic")
   #tmp = wire.readn(2)
   tmp = context.reader.will_read("magic").readn(2)
-  assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC), f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC} "
+  assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC_HEX), f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC_HEX} "
   
   context.reader.will_read("version")
   tmp = wire.read_word() 
