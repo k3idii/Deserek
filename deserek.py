@@ -433,14 +433,14 @@ class serJavaString(_abs_serSingleValue):
     
     ctx.reader.will_read("value")
     tmp = ctx.wire.readn(size)
-    self.value = tmp #.decode()
+    self.value = tmp.decode()
     
     ctx.log_dbg(f"++ Java::String ({size}){self.value}")
   
   def write(self, ctx):
     ctx.log_inf("JavaString")
     ctx.wire.write_word( len(self.value) )
-    ctx.wire.write(self.value) #.encode())
+    ctx.wire.write(self.value.encode()) #.encode())
 
   
 class serJavaLongString(_abs_serSingleValue):
@@ -1341,7 +1341,7 @@ def try_read_stuff(ctx:object, frendly_name:str, options:list):
 
 
 
-class JavaDeserek:
+class DeserekContext:
   
   handle_counter = 0
   
@@ -1433,8 +1433,8 @@ class JavaDeserek:
 
 
 
-def do_serialize(stuff, skip_magic=False, silent=False):
-  context = JavaDeserek()
+def do_serialize(java_stuff, skip_magic=False, silent=False):
+  context = DeserekContext()
   if silent:
     context._silent = True
   context.attach_wire( bytewirez.Wire(from_bytes=b'') )
@@ -1444,7 +1444,7 @@ def do_serialize(stuff, skip_magic=False, silent=False):
     context.wire.write(bytes.fromhex(javaConst.STREAM_MAGIC_HEX))
     context.wire.write_word(javaConst.STREAM_VERSION)
   
-  stuff.write(context)
+  java_stuff.write(context)
 
   return context.wire.dump()
   
@@ -1475,7 +1475,7 @@ def _unserial_wire(
     showref = False
   ):
   
-  context = JavaDeserek()
+  context = DeserekContext()
 
   wire.set_endian(bytewirez.ENDIAN_BIG)
   context.attach_wire(wire)
@@ -1491,7 +1491,7 @@ def _unserial_wire(
   
   context.reader.will_read("version")
   tmp = wire.read_word() 
-  assert tmp == javaConst.STREAM_VERSION, "Invalid VERSION"
+  assert tmp == javaConst.STREAM_VERSION, f"Invalid VERSION {tmp} != {javaConst.STREAM_VERSION} "
   
   context.reader.will_read("contents")
   with context.reader.start_list():

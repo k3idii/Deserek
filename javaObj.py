@@ -27,7 +27,8 @@ HandleID = __HandleIdGeneratorClass()
 
 
 class JavaLikeObject:
-  def to_deserek(self):
+  def pack_for_deserek(self):
+    """ return object that can be used by deserek when packing """
     raise Exception("Implement me - I am interface")
 
 
@@ -37,32 +38,36 @@ class j_String(JavaLikeObject):
   def __init__(self,value):
     self.value=value
 
-  def to_deserek(self):
+  def pack_for_deserek(self):
     return deserek.serTC_STRING(
       value=deserek.serJavaString(
         value=self.value,
       ),
     )
-  
 
-class JavaBasicField():
+
+
+
+class JavaAbstractBasicField():
   value = None
   typecode = -1
-  name = None
+
   
-  def __init__(self, name, typecode, default=0):
-    self.typecode = typecode 
-    self.name = name
+  def __init__(self, default=None):
     if default is not None:
       self.value = default
   
   def __repr__(self) -> str:
-    return f"BasicField : {self.name} -> {self.typecode} / {self.value}"
+    return f"{self.__class__.__name__}( {self.typecode} ,  {self.value})"
   
-  def for_classDesc(self):
+  def set(self, val):
+    print(f"SET {self.__class__.__name__}({self.typecode}) = {self.value}")
+    self.value = val
+  
+  def for_classDesc(self, name):
     return deserek.serPrimitiveDesc(
       typecode = ord(self.typecode),
-      fieldName = deserek.serJavaString(value=self.name)
+      fieldName = deserek.serJavaString(value=name)
     )
 
   def for_classData(self):
@@ -71,44 +76,54 @@ class JavaBasicField():
       value=self.value
       )
  
+class JavaInt32(JavaAbstractBasicField):
+  typecode = 'I'
+ 
+ 
+class JavaFloat(JavaAbstractBasicField):
+  typecode = 'F'
  
 
 class JavaObjectField():
   typecode = 'L' # object
   value = None
-  name = None
   object_name = "Ljava/lang/Object;"
 
-  def __init__(self, name, object_name=None):
+  def __init__(self, object_name=None, value=None):
     if object_name:
       self.object_name = object_name 
-    self.name = name
+    if value:
+      self.value = value
   
   def __repr__(self) -> str:
-    return f"ObjectField : {self.name} -> {self.value}"
+    return f"ObjectField({self.object_name}, {self.value})"
+  
+  def set(self, val):
+    print(f" SET {self.__class__.__name__}({self.typecode}/{self.object_name}) => {self.value})")
+    self.value = val
     
-  def for_classDesc(self):
+  def for_classDesc(self, name):
     return deserek.serObjectDesc(
       typecode = ord(self.typecode),
-      fieldName = deserek.serJavaString(value=self.name),
+      fieldName = deserek.serJavaString(value=name),
       className1=deserek.serTC_STRING(
         value=deserek.serJavaString(value=self.object_name),
       ),
     )
   
   def for_classData(self):
-    return self.value.to_deserek() # objecr expeced here
+    return self.value.pack_for_deserek() # object expeced here
 
 
 class JavaStringField(JavaObjectField):
   object_name = "Ljava/lang/String;"
 
-  def __init__(self, name):
-    self.name = name
-    self.value = ""
-
+  def __init__(self, value=""):
+    self.value = value
+    
   def for_classData(self):
-    return j_String(self.value).to_deserek()
+    return j_String(self.value).pack_for_deserek()
+
 
 class JavaBinaryObjectWriter():
   wire : deserek.bytewirez.Wire = None
@@ -122,6 +137,7 @@ class JavaBinaryObjectWriter():
 
 
 class JavaObjectWriter():
+  """ Default function for WriteObject """
   item_stack: list = None
 
   def __init__(self):
@@ -161,9 +177,7 @@ class JavaSerializableClass(JavaLikeObject):
   
   def __init__(self,**kw):
     if self._fields is None:
-      self._fields = []
-
-    self._fields = self._init_fields() 
+      self._fields = {}
 
     self._super_class_list = []
     c = self
@@ -174,58 +188,48 @@ class JavaSerializableClass(JavaLikeObject):
     for key,val in kw.items():
       setattr(self, key, val)
     self.constructor()
-    print(f"Object {self.__class__.__name__} / {self._class_name} initialized !")
+    print(f"Object({self.__class__.__name__}, {self._class_name}) initialized !")
   
-  def _init_fields(self):
-    raise Exception("MUST HAVE FIELDS !")
-  
+
   def constructor(self):
     pass 
   
-  def DISABLED__getattr__(self, __name: str) -> Any:
-    print("GETATTR",__name)
-    for fld in self._field_generator():
-      if fld.name == __name:
-        return fld
-
+  
   def get(self, __name:str) -> Any:
-    for fld in self._field_generator():
-      if fld.name == __name:
-        return fld.value
+    return self._fields[__name].value
+  
+  #def __getattr__(self, __name: str) -> Any:
+  #  print("GETATTR",__name)
+  #  if hasattr(self,__name):
+  #    print("internal attr")
+  #  else:
+      
 
-
-  def x__getattr__(self, __name: str) -> Any:
-    print("GETATTR",__name)
-    for fld in self._field_generator():
-      if fld.name == __name:
-        return fld.value
+  def set(self, value):
+    print("you should try to implement that for your class")
 
   def __setattr__(self, __name: str, __value: Any) -> None:
-    print(f"setting [[{self.__class__.__name__}]] -> [[{ __name}]] to {__value}")
+    print(f"setting [{self.__class__.__name__}]::[{ __name}] => {__value}")
     if hasattr(self,__name):
+      # classic way
       self.__dict__[__name] = __value
     else:
-      for f in self._field_generator():
-        if f.name == __name:
-          f.value = __value
-    
+      print(self._fields)
+      
+      setter = getattr(self._fields[__name], "set", None)
+      if setattr and callable(setter):
+        print(f"Call set {__name} => {__value}")
+        setter(__value)
+      else:
+        print(f"Assign {__name} => {__value}")
+        self._fields[__name] = __value
     
   def _get_flags(self):
     flags = 0 | javaConst.SC_SERIALIZABLE
     if callable(self.writeObject):
       flags = flags | javaConst.SC_WRITE_METHOD
     return flags
-  
 
-
-  def _field_generator(self):
-    print(">FieldGenrator", self._super_class_list)
-    for c in self._super_class_list[::-1]:
-      print(f" Getting fields for class {c.__class__.__name__} {c._fields}")
-      for f in c._fields:
-        print(f"  Field: {f}")
-        yield f
-    print("<FieldGenerator")
 
   def create_ClassDesc(self):
     if self._uid is None:  
@@ -242,18 +246,19 @@ class JavaSerializableClass(JavaLikeObject):
     else:
       su_class = self._super_class().create_ClassDesc()
     
-    list_of_fields = []
-    for field in self._fields: # self._field_generator():
-      print(f" > ClassDesc-field:{field}")
-      list_of_fields.append(
-        field.for_classDesc(),
+    list_of_field_desc = []
+    
+    for name, obj in self._fields.items():
+      print("~ for class Desc", name)
+      list_of_field_desc.append( 
+        obj.for_classDesc(name)
       )
       
     obj = deserek.serTC_CLASSDESC(
       className = deserek.serJavaString( value=self._class_name ),
       UID =deserek.serUID( value=self._uid ),
       handle = deserek.serHandle(value=HandleID.next()),
-      fields = deserek.serListOfObj( value=list_of_fields ),
+      fields = deserek.serListOfObj( value=list_of_field_desc ),
       classDescFlags = deserek.serClassFlags(value=self._get_flags()),
       classAnnotation = class_an,
       superClassDesc = su_class,
@@ -262,13 +267,15 @@ class JavaSerializableClass(JavaLikeObject):
 
   def prepare_standard_fields_values(self,filter=None):
     field_values = []
-    for field in self._field_generator():
-      print(f" > ClassData-field:{field}")
-      if filter:
-        if field.name not in filter:
-          print(f"    ~ SKIP ")
-          continue
-      field_values.append(field.for_classData())
+    
+    for name, obj in self._fields.items():
+      print(f" > ClassData-field:{name}=>{obj}")
+      if filter and name not in filter:
+        print(f"    ~ SKIP ")
+        continue
+      field_values.append(
+        obj.for_classData()
+      )
     return field_values
 
   def defaultWriteObject(self): # mimic Java style  writing
@@ -299,7 +306,7 @@ class JavaSerializableClass(JavaLikeObject):
     )
     return obj
     
-  def to_deserek(self):
+  def pack_for_deserek(self):
     obj = deserek.serTC_OBJECT(
       classDesc = self.create_ClassDesc(),
       handle    = deserek.serHandle(value=HandleID.next()),
@@ -351,38 +358,36 @@ class j_TestObjectName(JavaExternalizableClass):
 
 
 
-
-
-
 class j_TestCustomClass(JavaSerializableClass):
   _class_name = "customclass"
   _uid = 1337
-  def _init_fields(self):
-    return [
-      JavaBasicField("foo", "I"),
-      JavaStringField("sss"),
-      JavaObjectField("obj1")
-    ]
-
+  _fields = {
+    'foo' : JavaInt32(52),
+    'sss' : JavaStringField("test"),
+    "ob1" : JavaObjectField(),
+  }
+  
 
 class j_TestCustomClass2(JavaSerializableClass):
   _class_name = "customclass2"
   _uid = 2337
-  def _init_fields(self):
-    return  [
-      JavaBasicField("foo", "I"),
-      JavaStringField("sss"),
-    ]
+  _fields = {
+    "foo" : JavaInt32(123),
+    "sss" : JavaStringField("test"),
+  }
   
   def writeObject(self, wr: JavaObjectWriter):
     self.defaultWriteObject()
     with wr.binary_block() as binwr:
       binwr.writeInt(0xff)
     
-    i1 = j_simpleInteger()
+    i1 = javaCommons.j_simpleInteger()
     i1.value = 0xeeff
-    wr.write(i1.to_deserek())
+    wr.write(i1.pack_for_deserek())
     
+
+
+
 
 
 if __name__ == '__main__':
@@ -394,9 +399,9 @@ if __name__ == '__main__':
 
   if test_no == 1:
     o = javaCommons.j_simpleInteger()
-    o.value = 31337
+    o.set(31337)
 
-    x = o.to_deserek()
+    x = o.pack_for_deserek()
     print(x)
     print(x.as_python() )
 
@@ -405,22 +410,26 @@ if __name__ == '__main__':
   if test_no == 11:
     o = javaCommons.j_java_lang_integer()
     o.value = 42
-    j = o.to_deserek()
+    j = o.pack_for_deserek()
     print(j)
     open('tmp_int42.bin',"wb").write( deserek.do_serialize(j))
 
 
   if test_no == 3:
+    print("testcase 3:1")
     tmp = javaCommons.j_java_lang_integer()
-    tmp.value = 33
+    tmp.set(33)
 
+    print("testcase 3:2")
     o = j_TestCustomClass()
-    o.foo = 8765123
+    o.foo = 123
     o.sss = "Test"
-    o.obj1 = tmp
-
+    o.ob1 = tmp
     print(o)
-    x = o.to_deserek()
+    
+    print("testcase 3:3")
+    
+    x = o.pack_for_deserek()
     print(x)
     print(x.as_python())
     open('tmp_custom.bin',"wb").write( deserek.do_serialize(x))
@@ -431,7 +440,7 @@ if __name__ == '__main__':
     o.sss = "Test"
 
     print(o)
-    x = o.to_deserek()
+    x = o.pack_for_deserek()
     print(x)
     open('tmp_custom2.bin',"wb").write( deserek.do_serialize(x))
 
