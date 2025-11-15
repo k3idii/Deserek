@@ -175,7 +175,7 @@ class JavaSerializableClass(JavaLikeObject):
 
   writeObject = None # override this to implement cutom writer
   
-  def __init__(self,**kw):
+  def __init__(self,**kw): 
     if self._fields is None:
       self._fields = {}
 
@@ -185,6 +185,7 @@ class JavaSerializableClass(JavaLikeObject):
       self._super_class_list.append(c)
       c = c._super_class
 
+    # TODO: run this after construcor and use set() function from fields
     for key,val in kw.items():
       setattr(self, key, val)
     self.constructor()
