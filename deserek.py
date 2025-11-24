@@ -647,7 +647,7 @@ class serClassDescValues(_abs_serBasicObject):
   _fields = ['_class_name']
   
   def setup_from_kwargs(self):
-    print("KWARGS", self._kwargs)
+    #print("KWARGS", self._kwargs)
     self._class_name = self._kwargs['_class_name']
     # fix variable property list
     # possibly can handle that using orderedDict, tec
@@ -1518,7 +1518,7 @@ def simplyfy_object(j_obj):
 
 
 
-def _gen_required_py_imports(tmp):
+def _gen_required_py_imports():
   return '\n'.join( f"import {mod}" for mod in ["deserek", "javaConst"] )
   
 def _perform_roundtrip_test(tmp):
@@ -1577,8 +1577,10 @@ def print_python_stub(unserialized_stuff):
   print("if 1==1:")
   print(" import sys")
   print(" bin_data = deserek.do_serialize(obj)")
-  print(" open(sys.argv[1],'wb').write(bin_data)")
-
+  print(" if len(sys.argv)>1:")
+  print("  open(sys.argv[1],'wb').write(bin_data)")
+  print(" else:")
+  print("  sys.stdout.buffer.write(bin_data)")
 
 if __name__ == '__main__':
   import argparse

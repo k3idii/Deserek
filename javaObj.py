@@ -410,7 +410,7 @@ if __name__ == '__main__':
 
   if test_no == 11:
     o = javaCommons.j_java_lang_integer()
-    o.value = 42
+    o.set( int(sys.argv[2]) )
     j = o.pack_for_deserek()
     print(j)
     open('tmp_int42.bin',"wb").write( deserek.do_serialize(j))

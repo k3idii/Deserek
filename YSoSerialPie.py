@@ -53,6 +53,7 @@ def YsoSerial_URL__slim(host):
   h = j_HashMap__slim()
   s1 = j_String("W")
   u1 = j_java_net_URL_slim()
+  u1.authority = host
   h.MAP[u1] = s1
   return deserek.do_serialize(h.pack_for_deserek())
 
