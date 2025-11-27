@@ -3,6 +3,9 @@ import deserek
 import javaConst
 from contextlib import contextmanager
 
+import logging
+logger = logging.getLogger("DeserekObj")
+
 
 WELL_KNOWN = {
   "java.util.HashMap" : 362498820763181265,
@@ -61,7 +64,7 @@ class JavaAbstractBasicField():
     return f"{self.__class__.__name__}( {self.typecode} ,  {self.value})"
   
   def set(self, val):
-    print(f"SET {self.__class__.__name__}({self.typecode}) = {self.value}")
+    logger.debug(f"SET {self.__class__.__name__}({self.typecode}) = {self.value}")
     self.value = val
   
   def for_classDesc(self, name):
@@ -99,7 +102,7 @@ class JavaObjectField():
     return f"ObjectField({self.object_name}, {self.value})"
   
   def set(self, val):
-    print(f" SET {self.__class__.__name__}({self.typecode}/{self.object_name}) => {self.value})")
+    logger.debug(f" SET {self.__class__.__name__}({self.typecode}/{self.object_name}) => {self.value})")
     self.value = val
     
   def for_classDesc(self, name):
@@ -189,7 +192,7 @@ class JavaSerializableClass(JavaLikeObject):
     for key,val in kw.items():
       setattr(self, key, val)
     self.constructor()
-    print(f"Object({self.__class__.__name__}, {self._class_name}) initialized !")
+    logger.debug(f"Object({self.__class__.__name__}, {self._class_name}) initialized !")
   
 
   def constructor(self):
@@ -207,22 +210,22 @@ class JavaSerializableClass(JavaLikeObject):
       
 
   def set(self, value):
-    print("you should try to implement that for your class")
+    logger.debug("you should try to implement that for your class")
 
   def __setattr__(self, __name: str, __value: Any) -> None:
-    print(f"setting [{self.__class__.__name__}]::[{ __name}] => {__value}")
+    logger.debug(f"setting [{self.__class__.__name__}]::[{ __name}] => {__value}")
     if hasattr(self,__name):
       # classic way
       self.__dict__[__name] = __value
     else:
-      print(self._fields)
+      logger.debug(self._fields)
       
       setter = getattr(self._fields[__name], "set", None)
       if setattr and callable(setter):
-        print(f"Call set {__name} => {__value}")
+        logger.debug(f"Call set {__name} => {__value}")
         setter(__value)
       else:
-        print(f"Assign {__name} => {__value}")
+        logger.debug(f"Assign {__name} => {__value}")
         self._fields[__name] = __value
     
   def _get_flags(self):
@@ -250,7 +253,7 @@ class JavaSerializableClass(JavaLikeObject):
     list_of_field_desc = []
     
     for name, obj in self._fields.items():
-      print("~ for class Desc", name)
+      logger.debug("~ for class Desc", name)
       list_of_field_desc.append( 
         obj.for_classDesc(name)
       )
@@ -270,9 +273,9 @@ class JavaSerializableClass(JavaLikeObject):
     field_values = []
     
     for name, obj in self._fields.items():
-      print(f" > ClassData-field:{name}=>{obj}")
+      logger.debug(f" > ClassData-field:{name}=>{obj}")
       if filter and name not in filter:
-        print(f"    ~ SKIP ")
+        logger.debug(f"    ~ SKIP ")
         continue
       field_values.append(
         obj.for_classData()
@@ -300,7 +303,7 @@ class JavaSerializableClass(JavaLikeObject):
         kwargs['serialdata'] = deserek.serListOfObj(
           value = self._standard_fields_values
         )
-    print(">> Write values ", kwargs)
+    logger.debug(">> Write values ", kwargs)
     obj = deserek.serClassDescValues(
       _class_name=self._class_name,
       **kwargs,

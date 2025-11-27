@@ -1,9 +1,9 @@
 from javaObj import *
 
+import logging
+logger = logging.getLogger("DeserekCommonObj")
 
 
- 
- 
  
 class j_simpleInteger(JavaSerializableClass):
   '''
@@ -59,9 +59,9 @@ class j_HashMap(JavaSerializableClass):
       binwr.writeInt(0x00) # bickets
       binwr.writeInt(size)  # size
     for k,v in self.MAP.items():
-      #print("pack k :",k)
+      logger.debug("Hashmap:pack k :",k)
       wr.write(k.pack_for_deserek())
-      #print("pack v :",v)
+      logger.debug("Hashmap:pack v :",v)
       wr.write(v.pack_for_deserek())
       
 

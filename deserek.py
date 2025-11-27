@@ -1,28 +1,63 @@
 
-from collections import OrderedDict
+
+from contextlib import contextmanager
 
 import base64 
 import struct
 
-from contextlib import contextmanager
-
-
-import bytewirez.bytewirez as bytewirez
-
-try:
-  from loguru import logger
-except:
-  print("No loguru ! -> fallback to default")
-  from logging import Logger
-  logger = Logger("foo")
-
-
-import yaml
 import json
 
-import javaConst
 
-import time
+import javaConst
+import bytewirez.bytewirez as bytewirez
+import outFormats
+
+
+import logging
+logger = logging.getLogger('Deserek')
+
+bytewirez.logger.setLevel(logging.ERROR)
+
+#logging.basicConfig(level=level,
+#                #format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+#                format='{asctime} {name}|{file:12}:{lineno}@{funcName:12} {levelname} {message}',
+#                style = "{",
+#                datefmt='%m-%d %H:%M',
+
+logging.basicConfig(
+  level=logging.DEBUG,
+  #format='{asctime} {name}:{lineno}@{funcName:12} {levelname} {message}', 
+  format='{asctime} {levelname:5.5} {name} {funcName:20.20} {message}', 
+  style = "{",
+  datefmt='%H:%M:%S',
+)
+
+def set_log_level(level):
+  logging.getLogger().setLevel(level)
+
+# Pretend to be thread-safe
+import threading
+_log_indent = threading.local()
+_log_indent.level = 0
+def _get_log_indent():    
+  return ' '*getattr(_log_indent, "level", 0)
+
+def _set_log_indent(lvl):
+  _log_indent.level = lvl
+
+# hack the indend stuff 
+old_factory = logging.getLogRecordFactory()
+def record_factory(*args, **kwargs):
+    record = old_factory(*args, **kwargs)
+    #record.file = record.filename.split("/")[-1]
+    msg = record.msg
+    record.msg = _get_log_indent() +  msg
+    return record
+
+logging.setLogRecordFactory(record_factory)
+
+
+
 
 
 MODULENAMEPREFIX="deserek."
@@ -59,24 +94,11 @@ def _classDescFlags_to_data_elements(flg):
   return rv
 
 
-def _dictify(o):
-  if getattr(o,'to_dict',None) is not None:
-    return { str(type(o).__name__) : o.to_dict() }
-  if type(o) is list:
-    #print(o)
-    #1/0
-    return [_dictify(x) for x in o]
-  #print(f"{o} NO JSON")
-  return o # the value itself (should be primitive value)
-
 
 
 def _cname(o):
   return type(o).__name__
 
-yaml.add_representer(OrderedDict, lambda dumper, data: dumper.represent_mapping('tag:yaml.org,2002:map', data.items()))
-def yamlify(o, width=1000):
-  return yaml.dump(_dictify(o), default_flow_style=False,  width=width)
 
 class EndBlockData(Exception):
   pass
@@ -113,7 +135,7 @@ def _pythonize(item, indent):
 
 
 
-class _abs_serBareObj:
+class abstractBareJObject:
 
   def __init__(self, ctx=None, **kw):
     self._kwargs = kw
@@ -160,7 +182,7 @@ class _abs_serBareObj:
 
 
 
-class serListOfObj(_abs_serBareObj):
+class serListOfObj(abstractBareJObject):
   value = None
 
   def init(self):
@@ -185,11 +207,11 @@ class serListOfObj(_abs_serBareObj):
     return self.value.__iter__()
 
   def write(self, ctx, include_size=None):
-    ctx.log_inf("WRITE LIST")
+    logger.info("WRITE LIST")
     if include_size is not None:
       ctx.wire.write_fmt(include_size, len(self.value))
     for i, item in enumerate(self.value):
-      ctx.log_inf(f" WRITE item {i+1} of {len(self.value)} / {item}")
+      logger.info(f" WRITE item {i+1} of {len(self.value)} / {item}")
       item.write(ctx)
 
   def _args_to_str(self):
@@ -215,7 +237,7 @@ class serListOfObj(_abs_serBareObj):
 
 
 
-class _abs_serBasicObject(_abs_serBareObj):
+class _abs_serBasicObject(abstractBareJObject):
   _kwargs = None
   _fields = []
 
@@ -250,7 +272,7 @@ class _abs_serBasicObject(_abs_serBareObj):
     raise Exception(f"Implement READ_OBJ -> in {_cname(self)}")
 
   def write(self, ctx):
-    ctx.log_inf(f"WRITE_OBJ : {_cname(self)}")
+    logger.info(f"WRITE_OBJ : {_cname(self)}")
     self._pre_write(ctx)
     return self.write_obj(ctx) # to look same as read_obj 
 
@@ -309,14 +331,14 @@ class _abs_serTCValue(_abs_serBasicObject):
     super().init()
     self._tc_name = _tc_to_name(self.TC)
     if self._is_empty:
-      self.read_obj = lambda  ctx: ctx.log_dbg(f"<READ EMPTY {_cname(self)}>")
-      self.write_obj = lambda ctx: ctx.log_dbg(f"<WRITE EMPTY {_cname(self)}>")
+      self.read_obj = lambda  ctx: logger.debug(f"<READ EMPTY {_cname(self)}>")
+      self.write_obj = lambda ctx: logger.debug(f"<WRITE EMPTY {_cname(self)}>")
   
   def _check_stuff(self, ctx):
     b = ctx.wire.peek_byte()  
     result = self.TC == b
     r = " YES " if result else " NO "
-    ctx.log_dbg(f"CHECK IF : 0x{b:02X}/{b} == {self.TC}/{self._tc_name}/{_cname(self)} -> {r}")
+    logger.debug(f"CHECK IF : 0x{b:02X}/{b} == {self.TC}/{self._tc_name}/{_cname(self)} -> {r}")
     
     if result:
 
@@ -330,7 +352,7 @@ class _abs_serTCValue(_abs_serBasicObject):
     
     
   def _pre_write(self, ctx):
-    ctx.log_inf(f"WRITE TC: 0x{self.TC:02X}")
+    logger.info(f"WRITE TC: 0x{self.TC:02X}")
     ctx.wire.write_byte(self.TC)
   
   def get_simple_value(self):
@@ -348,7 +370,7 @@ class _abs_serPeekTypecode(_abs_serBasicObject):
     b = ctx.wire.peek_byte()  
     result = b in self._good_values
     r = " YES " if result else " NO "
-    ctx.log_dbg(f"CHECK IF : 0x{b:02X}/{b} == {self._good_values} AT {_cname(self)} -> {r}")
+    logger.debug(f"CHECK IF : 0x{b:02X}/{b} == {self._good_values} AT {_cname(self)} -> {r}")
     
     if result:
       return True
@@ -376,7 +398,7 @@ class serHandle(_abs_serSingleValue):
     assert ref is not None, "ref must not be none !"
     
     self.value = javaConst.baseWireHandle + ctx.next_handle_number()
-    ctx.log_inf(f"newHandle : {self.value:08x} -> {_cname(ref)} ")
+    logger.info(f"newHandle : {self.value:08x} -> {_cname(ref)} ")
     ctx.register_object(self.value, ref)
 
 
@@ -391,7 +413,7 @@ class serClassFlags(_abs_serSingleValue):
   def read_obj(self, ctx):
     ctx.reader.will_read("value")
     self.value = ctx.wire.read_byte()
-    ctx.log_inf(f"ClassFlags : {self.value}/{self.value:02X}")
+    logger.info(f"ClassFlags : {self.value}/{self.value:02X}")
 
   def write_obj(self, ctx):
     ctx.wire.write_byte(self.value)
@@ -417,7 +439,7 @@ class serUID(_abs_serSingleValue):
   def read_obj(self, ctx):
     ctx.reader.will_read("value")
     self.value = ctx.wire.read_sqword()
-    ctx.log_dbg(f"clsUID=0x{self.value:08x}/{self.value}")
+    logger.debug(f"clsUID=0x{self.value:08x}/{self.value}")
 
   def write(self, ctx):
     ctx.wire.write_sqword(self.value)
@@ -429,16 +451,16 @@ class serJavaString(_abs_serSingleValue):
     ctx.reader.will_read("size")
     size = ctx.wire.read_word()
     
-    ctx.log_dbg(f"try read string len : {size} / 0x{size:04X}")
+    logger.debug(f"try read string len : {size} / 0x{size:04X}")
     
     ctx.reader.will_read("value")
     tmp = ctx.wire.readn(size)
     self.value = tmp.decode()
     
-    ctx.log_dbg(f"++ Java::String ({size}){self.value}")
+    logger.debug(f"++ Java::String ({size}){self.value}")
   
   def write(self, ctx):
-    ctx.log_inf("JavaString")
+    logger.info("JavaString")
     ctx.wire.write_word( len(self.value) )
     ctx.wire.write(self.value.encode()) #.encode())
 
@@ -449,15 +471,15 @@ class serJavaLongString(_abs_serSingleValue):
     99/0 # TODO 
     self.raw = ctx.wire.read_qword()
     size = struct.unpack(">Q", self.raw)[0]
-    ctx.log_dbg(f"read string len : {size} / 0x{size:04X}")
+    logger.debug(f"read string len : {size} / 0x{size:04X}")
 
     tmp = ctx.io.read(size)
     self.raw += tmp
     self.value = tmp.decode()
-    ctx.log_inf(f"JavaString ({size}){self.value}")
+    logger.info(f"JavaString ({size}){self.value}")
 
   def write(self, ctx):
-    ctx.log_inf("JavaString")
+    logger.info("JavaString")
     ctx.wire.write_qword( len(self.value) )
     ctx.wire.write(self.value.encode())
 
@@ -473,12 +495,12 @@ class serPrimitiveDesc(_abs_serPeekTypecode):
 
   def read_obj(self,ctx):
     #print(f"FIELDS : {self._fields}")
-    ctx.log_inf(f"Read primitive {self.typecode}/{chr(self.typecode)}")
+    logger.info(f"Read primitive {self.typecode}/{chr(self.typecode)}")
     #self.typecode = self._byte
     
     ctx.reader.will_read("fieldName")
     self.fieldName = serJavaString( ctx = ctx )
-    ctx.log_dbg(f"FieldName : [{self.fieldName.value}]")
+    logger.debug(f"FieldName : [{self.fieldName.value}]")
 
   def write_obj(self, ctx):
     self.fieldName.write(ctx)
@@ -496,12 +518,12 @@ class serObjectDesc(_abs_serPeekTypecode):
   _good_values = javaConst.obj_typecode
   
   def read_obj(self, ctx):
-    ctx.log_inf(f"Read objecDesc {self.typecode}/{chr(self.typecode)}")
+    logger.info(f"Read objecDesc {self.typecode}/{chr(self.typecode)}")
     ctx.reader.will_read("fieldName")
     self.fieldName = serJavaString( ctx = ctx )
     ctx.reader.will_read("className1")
     self.className1 = read_object(ctx)
-    ctx.log_inf(f"className1 READ-AS XXXXXX {self.className1.__class__} ")
+    logger.info(f"className1 READ-AS XXXXXX {self.className1.__class__} ")
     # serJavaString( deser = ctx )
 
   def write_obj(self, ctx):
@@ -550,7 +572,7 @@ class serTC_PROXYCLASSDESC(_abs_serTCValue):
 
   def read_obj(self, ctx):
     self.handle = serHandle(ctx=ctx, ref=self) 
-    ctx.log_inf("TC_PROXYCLASSDESC/proxyClassDescInfo")
+    logger.info("TC_PROXYCLASSDESC/proxyClassDescInfo")
     ctx.reader.will_read("count")
     self.count = ctx.wire.read_dword()
     
@@ -618,13 +640,13 @@ class serTC_CLASSDESC(_abs_serTCValue):
   
     ctx.reader.will_read("number_of_fields")
     count = ctx.wire.read_word()
-    ctx.log_dbg(f"TC_CLASSDESC fields count:{count}")
+    logger.debug(f"TC_CLASSDESC fields count:{count}")
     
     val = serListOfObj()
     ctx.reader.will_read("fields")
     with ctx.reader.start_list():
       for i in range(count):
-        ctx.log_dbg(f"field {i+1}/{count}")
+        logger.debug(f"field {i+1}/{count}")
         f = read_fieldDesc(ctx)
         val.append(f)
       return val
@@ -664,20 +686,20 @@ class serClassDescValues(_abs_serBasicObject):
       raise Exception("Cant have both serialization types")
 
     ## print(self._fields, "VS", self.__tmp)
-    ctx.log_dbg(f"Will write : {self._fields}")
+    logger.debug(f"Will write : {self._fields}")
     for element_name in order_of_elements:
       if element_name not in self._fields:
-        ctx.log_dbg(f" ? Don't have {element_name}")
+        logger.debug(f" ? Don't have {element_name}")
         continue
       #item = self._fields[element_name]
     #for item in self._fields:
     #  if item.startswith('_'):
-    ##    ctx.log_dbg(f"SKIP: {item}")
+    ##    logger.debug(f"SKIP: {item}")
     #    continue
       
       func_name = f"_write_item__{element_name}"
       func_ptr  = getattr(self, func_name)
-      ctx.log_inf(f"WRITE {self._class_name}::{element_name}")
+      logger.info(f"WRITE {self._class_name}::{element_name}")
       func_ptr(ctx)
     
 
@@ -712,18 +734,18 @@ class serClassDescValues(_abs_serBasicObject):
     elements = _classDescFlags_to_data_elements(cdesc.classDescFlags.value)
     self.__tmp = elements
     
-    ctx.log_inf(f"Will read data sections : {elements}")
+    logger.info(f"Will read data sections : {elements}")
     for item in elements:
       setattr(self, item, None)
       func_name = f"_read_item__{item}"
       func_ptr  = getattr(self, func_name)
-      ctx.log_inf(f">> Reading classData [{item}] using [{func_name}]")
+      logger.info(f">> Reading classData [{item}] using [{func_name}]")
       #with ctx.scope(f"Reading values {self._class_name}::{item}"):
       ctx.reader.will_read(item)
       #with ctx.reader.start_list(item):
       func_ptr(ctx, cdesc)
       self._fields.append(item)
-      ctx.log_inf(f"<< Reading DONE of [{item}] using [{func_name}]")
+      logger.info(f"<< Reading DONE of [{item}] using [{func_name}]")
 
       
   def _read_item__externalContent(self, ctx, _):
@@ -741,13 +763,13 @@ class serClassDescValues(_abs_serBasicObject):
   def _iter_read_fields_by_classDesc(self, ctx, cdesc):
     cnt = len(cdesc.fields.value)
     if cnt == 0:
-      ctx.log_dbg("Read values : ZERO fields to read ")
+      logger.debug("Read values : ZERO fields to read ")
       return
     field_names = ' | '.join(str(a.fieldName.value) for a in cdesc.fields)
-    ctx.log_dbg(f"Reading fields : (count:{cnt}) [{field_names}]")
+    logger.debug(f"Reading fields : (count:{cnt}) [{field_names}]")
     for i,f in enumerate(cdesc.fields):
-      ctx.log_inf(f">> Read Value [ {i+1} of {cnt}]  {self._class_name} -> {f.fieldName.value} ")
-      ctx.log_dbg(f"-> Field type:{f.typecode}/{chr(f.typecode)} name:{f.fieldName.value}")
+      logger.info(f">> Read Value [ {i+1} of {cnt}]  {self._class_name} -> {f.fieldName.value} ")
+      logger.debug(f"-> Field type:{f.typecode}/{chr(f.typecode)} name:{f.fieldName.value}")
       item = _read_single_typecode_value(ctx, f.typecode)
       yield item
         
@@ -761,7 +783,7 @@ class serTC_OBJECT(_abs_serTCValue):
  
     ctx.reader.will_read("classDesc")
     self.classDesc = read_classDesc(ctx)
-    ctx.log_dbg(f"ClassDesc type : 0x{self.classDesc.TC:02x}/{_cname(self.classDesc)}")
+    logger.debug(f"ClassDesc type : 0x{self.classDesc.TC:02x}/{_cname(self.classDesc)}")
       
     self.handle = serHandle(ctx=ctx, ref=self)
     
@@ -773,12 +795,12 @@ class serTC_OBJECT(_abs_serTCValue):
     
   def read_classData(self, ctx):  
     
-    ctx.log_dbg("Get classDesc stack ... ")
+    logger.debug("Get classDesc stack ... ")
     class_desc_stack = self._get_classDesc_stack()
-    ctx.log_inf(f" classDesc count : {len(class_desc_stack)}")
+    logger.info(f" classDesc count : {len(class_desc_stack)}")
 
     for cdesc in class_desc_stack[::-1]:
-      ctx.log_dbg(f"values for {self.classDesc._get_name()}::{cdesc._get_name()}")
+      logger.debug(f"values for {self.classDesc._get_name()}::{cdesc._get_name()}")
       #with ctx.scope(f"class values for {self.classDesc._get_name()}::{cdesc._get_name()} "):
       self.classData.append(
         serClassDescValues(ctx, _cdesc = cdesc)
@@ -794,7 +816,7 @@ class serTC_OBJECT(_abs_serTCValue):
       
   def write_obj(self, ctx):
     for key in self._fields:
-      ctx.log_inf(f"WRITE ITEM: {self.__class__.__name__} :: {key}")
+      logger.info(f"WRITE ITEM: {self.__class__.__name__} :: {key}")
       getattr(self, key).write(ctx)
 
 
@@ -875,16 +897,16 @@ class serTC_OBJECT(_abs_serTCValue):
 
 
 def _read_single_typecode_value(ctx, tc):
-  ctx.log_inf(f"Read item typecode: {tc}/{chr(tc)} ...")
+  logger.info(f"Read item typecode: {tc}/{chr(tc)} ...")
   if tc in javaConst.prim_typecode:
     return serValuePrimitive(ctx=ctx, _typecode_hint=tc)
     # that is ok ;)
   # else -> object || array  
   elif tc == javaConst.TYPECODE_OBJECT:
-    ctx.log_dbg(" OBJECT VALUE !!! ")
+    logger.debug(" OBJECT VALUE !!! ")
     return read_object(ctx)
   elif tc == javaConst.TYPECODE_ARRAY:
-    ctx.log_dbg(" ARRAY VALUE !!! ")
+    logger.debug(" ARRAY VALUE !!! ")
     #return read_newArray(ctx)
     return read_array(ctx) # array || ref || null
   else:
@@ -916,10 +938,10 @@ class serValuePrimitive(_abs_serBasicObject):
     self._format = TYPECODE_TO_FORMAT[chr(self._typecode_hint)]
 
   def read_obj(self, ctx):
-    ctx.log_inf(f"Read [{self._typecode_hint}] -> [{self._format}]")
+    logger.info(f"Read [{self._typecode_hint}] -> [{self._format}]")
     ctx.reader.will_read('value')
     self.value = ctx.wire.read_fmt(self._format)
-    ctx.log_dbg(f"> Read value from wire: {self.value}")
+    logger.debug(f"> Read value from wire: {self.value}")
 
 
   def write(self, ctx):
@@ -971,7 +993,7 @@ class serTC_ARRAY(_abs_serTCValue):
     
     ctx.reader.will_read("size")
     self.size = ctx.wire.read_dword()
-    ctx.log_dbg(f"Array size : {self.size}")
+    logger.debug(f"Array size : {self.size}")
     
     ctx.reader.will_read("items")
     with ctx.reader.start_list():
@@ -991,7 +1013,7 @@ class serTC_ARRAY(_abs_serTCValue):
     class_name = cdesc.className.value
     typecode = ord(class_name[1])
     for i in range(self.size):
-      ctx.log_dbg(f"Array item read {i} of {self.size} / {class_name}")
+      logger.debug(f"Array item read {i} of {self.size} / {class_name}")
       item =  _read_single_typecode_value(ctx, typecode)  
       self.value.append(item)
     ### ctx.register_object(self.handle.v, self)
@@ -1037,7 +1059,7 @@ class serTC_BLOCKDATA(_abs_serTCValue):
     ctx.reader.will_read("value")
     self.value = ctx.wire.read(self.size)
 
-    ctx.log_dbg(f"BLOCKDATA ({self.size}) : {self.value}")
+    logger.debug(f"BLOCKDATA ({self.size}) : {self.value}")
 
   def write_obj(self, ctx):
     ctx.wire.write_byte(self.size)
@@ -1071,7 +1093,7 @@ class serTC_REFERENCE(_abs_serTCValue):
     self._ref_ctx = ctx
     ctx.reader.will_read("handle")
     self.handle = ctx.wire.read_dword()
-    ctx.log_inf(f"HandleRef : {self.handle:08x}")
+    logger.info(f"HandleRef : {self.handle:08x}")
   
   def write_obj(self, ctx):
     ctx.wire.write_dword(self.handle)
@@ -1079,7 +1101,7 @@ class serTC_REFERENCE(_abs_serTCValue):
   ## HACKS TO ACCESS REFERENCES 
 
   def __getattr__(self, __name: str):
-    self._ref_ctx.log_dbg(f"!! NOTICE: resolveing attr [{__name}] on reference 0x{self.handle:08x}")
+    self._ref_logger.debug(f"!! NOTICE: resolveing attr [{__name}] on reference 0x{self.handle:08x}")
     #raise Exception(f"You tried to get attr {__name} of TC_REFERENCE !")
     
     ref_obj = self._ref_ctx.get_ref(self.handle)
@@ -1093,7 +1115,7 @@ class serTC_REFERENCE(_abs_serTCValue):
     
 
     assert ret_val is not None, f"TC_REFERENCE [0x{self.handle:08X}] lookup `{__name}` returned NONE !"
-    self._ref_ctx.log_dbg(f"!! SUCCESS lookup -> {__name} from { _cname(ref_obj)}")
+    self._ref_logger.debug(f"!! SUCCESS lookup -> {__name} from { _cname(ref_obj)}")
     # time.sleep(1)
     return ret_val
     
@@ -1235,15 +1257,15 @@ def read_endBlockData(ctx):
 def read_blockdata_uintill_end(ctx, info='?'):
   retval = serListOfObj()
   with ctx.reader.start_list():
-    ctx.log_dbg(f"read contents untill endBlockData @{info}")
+    logger.debug(f"read contents untill endBlockData @{info}")
     while True:
       try:
         item = read_endBlockData(ctx)
         retval.append(item)
-        ctx.log_dbg("EndBlockData reached")
+        logger.debug("EndBlockData reached")
         return retval
       except ReadCheckFailed:
-        ctx.log_dbg("Not End-block-data")
+        logger.debug("Not End-block-data")
       did_read = False
       item = None
       
@@ -1266,15 +1288,12 @@ def read_blockdata_uintill_end(ctx, info='?'):
 
 
 def read_classAnnotation(ctx, info="??"): # or object 
-  ctx.log_inf("READ classAnnotation")
+  logger.info("READ classAnnotation")
   return read_blockdata_uintill_end(ctx, info)
   
 def read_objectAnnotation(ctx, info="?"):
-  ctx.log_inf("READ objectAnnotation")
+  logger.info("READ objectAnnotation")
   return read_blockdata_uintill_end(ctx, info) 
-
-
-
 
 
 
@@ -1327,17 +1346,19 @@ def try_read_stuff(ctx:object, frendly_name:str, options:list):
   """
   #names = list(x.__name__ for x in options)
   count = len(options)
-  ctx.log_dbg(f"TRY: {frendly_name} (candidates count:{count})")
+  logger.debug(f"TRY: {frendly_name} (candidates count:{count})")
   with ctx.inc_depth():
     for i, fnc in enumerate(options):
       try:
-        ctx.log_dbg(f"try read no:{i+1:2}/{count} -> Try func:{fnc.__name__}")
+        logger.debug(f"try read no:{i+1:2}/{count} -> Try func:{fnc.__name__}")
         val = fnc(ctx)
-        ctx.log_inf(f"++ Mach! Reading {fnc} ")
+        logger.info(f"++ Mach! Reading {fnc} ")
         return val
       except ReadCheckFailed as ex:
-        ctx.log_dbg(f" -> FAIL: {fnc.__name__} (reason: {str(ex)})")
+        logger.debug(f" -> FAIL: {fnc.__name__} (reason: {str(ex)})")
     raise ReadCheckFailed(f"Fail to read - out of options at {frendly_name}")
+
+
 
 
 
@@ -1374,13 +1395,13 @@ class DeserekContext:
     return tmp 
 
   def get_ref(self, ref_id):
-    self.log_dbg(f"Get ref to {ref_id:08x}")
+    logger.debug(f"Get ref to {ref_id:08x}")
     self._ref_backlog[ref_id] += 1
     #time.sleep(1)
     return self._ref[ref_id]
 
   def register_object(self, ref_id, value):
-    self.log_dbg(f"*** *** Register [0x{ref_id:04x}] = [{value.__class__}] *** ***")
+    logger.debug(f"*** *** Register [0x{ref_id:04x}] = [{value.__class__}] *** ***")
     self._ref[ref_id] = value
     self._ref_backlog[ref_id] = 0
     #time.sleep(1)
@@ -1407,139 +1428,149 @@ class DeserekContext:
 
   @contextmanager
   def inc_depth(self):
+    # we should set context to logger
     try:
       self._depth += 1
+      _set_log_indent(self._depth)
       yield 1
     finally:
       self._depth -= 1
+      _set_log_indent(self._depth)
+      
+  def _useless_indent(self):
+    return ' '*self._depth
 
 
-  def log_inf(self, msg):
-    #self.reader.log_inf(msg)
-    if not self._silent:
-      logger.info(' '*self._depth + msg)
+from dataclasses import dataclass
 
-  def log_dbg(self, msg):
-    #self.reader.log_dbg(msg)
-    if not self._silent:
-      logger.debug(' '*self._depth +msg)
-
-  def log_war(self, msg):
-    #self.reader.log_war(msg)
-    if not self._silent:
-      logger.warning(' '*self._depth +msg)
+@dataclass
+class DebugOptions:
+  show_ref  : bool = False
+  log_level : int  = logging.ERROR
 
 
+@dataclass
+class DeSerializerOptions(DebugOptions):
+  skip_header : bool = False
+  save_struct_to  : str = None, 
+  save_format     : str  = None,
 
-
-
-def do_serialize(java_stuff, skip_magic=False, silent=False):
-  context = DeserekContext()
-  if silent:
-    context._silent = True
-  context.attach_wire( bytewirez.Wire(from_bytes=b'') )
-  context.wire.set_endian(bytewirez.ENDIAN_BIG)
+@dataclass
+class SerializerOptions(DebugOptions):
+  skip_header : bool = False
   
-  if not skip_magic:
-    context.wire.write(bytes.fromhex(javaConst.STREAM_MAGIC_HEX))
-    context.wire.write_word(javaConst.STREAM_VERSION)
   
-  java_stuff.write(context)
-
-  return context.wire.dump()
-  
-   
-
-
-
-def do_unserial(from_bytes=None, from_fd=None, **kw):
-  if from_bytes:
-    wire = bytewirez.Wire(from_bytes=from_bytes)
+""" unified interface """    
+# New, cleaner API
+def do_unserialize(
+    from_bytes : bytes | None = None,
+    from_fd  : int | None = None,
+    from_wire : bytewirez.Wire | None = None,
+    opt : DeSerializerOptions|None = None,
+  ) -> serListOfObj:
+  """
+  """
+  wire = None
+  if from_wire:
+    wire = from_wire
+  elif from_bytes:
+    wire = bytewirez.Wire(from_bytes = from_bytes)
   elif from_fd:
     wire = bytewirez.Wire(from_fd = from_fd)
   else:
     raise Exception("No source provided")
-  return _unserial_wire(
-            wire = wire,
-            **kw
-          )
+  
+  return load_from_wire(wire = wire, opt=opt)
+  
 
-
-
-
-def _unserial_wire(
-    wire, 
-    silent = False, 
-    save_struct_to = None, 
-    save_format = None,
-    showref = False
-  ):
+def load_from_wire(wire:bytewirez.Wire, opt:DeSerializerOptions|None):
+  
+  if opt is None:
+    opt = DeSerializerOptions() # default
   
   context = DeserekContext()
-
   wire.set_endian(bytewirez.ENDIAN_BIG)
+  
   context.attach_wire(wire)
   context.reader = bytewirez.StructureReader(wire)
+
+  set_log_level(opt.log_level)
   #context.reader.logger = logger
-  if silent:
-    context._silent = True
-    
-  #context.reader.will_read("magic")
-  #tmp = wire.readn(2)
-  tmp = context.reader.will_read("magic").readn(2)
-  assert tmp == bytes.fromhex(javaConst.STREAM_MAGIC_HEX), f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC_HEX} "
+  #if silent:
+  #  context._silent = True
   
-  context.reader.will_read("version")
-  tmp = wire.read_word() 
-  assert tmp == javaConst.STREAM_VERSION, f"Invalid VERSION {tmp} != {javaConst.STREAM_VERSION} "
-  
+  if not opt.skip_header:
+    tmp = context.reader.will_read("magic").readn(2)
+    assert tmp == javaConst.STREAM_MAGIC_BYTES, f"Invalid MAGIC {tmp} != {javaConst.STREAM_MAGIC_HEX} "
+
+    context.reader.will_read("version")
+    tmp = wire.read_word() 
+    assert tmp == javaConst.STREAM_VERSION, f"Invalid VERSION {tmp} != {javaConst.STREAM_VERSION} "
+
   context.reader.will_read("contents")
+
+  content = serListOfObj()
   with context.reader.start_list():
-    stuff = read_contents(context)
-  
-  if save_struct_to and save_format:
-    f = open(save_struct_to,'w')
-    if save_format == 'json':
+    while context.wire.bytes_available() > 1:
+      content.append( read_content(context) )
+
+  # move that outside 
+  if opt.save_struct_to and opt.save_format:
+    f = open(opt.save_struct_to,'w')
+    if opt.save_format == 'json':
       bytewirez.structure_to_html_viewer(context.reader, into_file=f)
-    if save_format == 'imhex':
+    if opt.save_format == 'imhex':
       f.write(context.reader.output_imHex())
   
+  #if showref:
+  #  context.show_refs()
+
+  return content
+
+
+def do_serialize(content:abstractBareJObject, opt:SerializerOptions|None=None):
+  if opt is None:
+    opt = SerializerOptions() # default
   
-  if showref:
-    context.show_refs()
-
-  return stuff
-
-
-
-def simplyfy_object(j_obj):
-  return j_obj.get_simple_value()
-
-
-
-
-def _gen_required_py_imports():
-  return '\n'.join( f"import {mod}" for mod in ["deserek", "javaConst"] )
   
-def _perform_roundtrip_test(tmp):
+  context = DeserekContext()
+  #if silent:
+  #  context._silent = True
+  context.attach_wire( bytewirez.Wire(from_bytes=b'') )
+  context.wire.set_endian(bytewirez.ENDIAN_BIG)
+  
+  if not opt.skip_header:
+    context.wire.write(bytes.fromhex(javaConst.STREAM_MAGIC_HEX))
+    context.wire.write_word(javaConst.STREAM_VERSION)
+  
+  content.write(context)
+  
+  return context.wire.dump()
+
+
+
+
+
+
+def _perform_roundtrip_test(org, tmp):
   
   print("*** TEST 1 : serialization : ")
   #time.sleep(2)    
   bin2 = do_serialize(tmp)
 
-  print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin2)} (saved as tmp2.bin/yml)")
+  print(f" ?? SERIALIZED :  LEN1={len(org)} , LEN2={len(bin2)} (saved as tmp2.bin/yml)")
   #open("tmp2.bin","wb").write(bin2)
   #open("tmp2.yml","w").write(yamlify(tmp))
   
   print(" ?? check if binary 1 & 2 format is identiacal ")
-  assert bin1 == bin2, "Serialization 1->2 not stable"
+  assert org == bin2, "Serialization 1->2 not stable"
   print(" ++ OK \n")
 
 
   #time.sleep(2)
   print("*** TEST 2 : Unserialize bin2 ")
   
-  tmp3 = do_unserial(bin2)
+  tmp3 = do_unserialize(bin2)
   print(" ++ OK \n")
   
   print(" *** TEST 3 : serialization from python code ... ")
@@ -1564,25 +1595,21 @@ def _perform_roundtrip_test(tmp):
   #open("tmp4.bin","wb").write(bin4)
   #open("tmp4.yml","w").write(yamlify(tmp))
   print(" ?? check if binary 1 & 4 format is identiacal ")
-  assert bin1 == bin4, "Serialization 1-4 not stable"
+  assert org == bin4, "Serialization 1-4 not stable"
 
 
   print("\n\nIf you see this message means that (de)serializator is stable !\n\n")
 
-def print_python_stub(unserialized_stuff):
-  print(_gen_required_py_imports())
-  print("")
-  print("obj = " + unserialized_stuff.as_python())
-  print("")
-  print("if 1==1:")
-  print(" import sys")
-  print(" bin_data = deserek.do_serialize(obj)")
-  print(" if len(sys.argv)>1:")
-  print("  open(sys.argv[1],'wb').write(bin_data)")
-  print(" else:")
-  print("  sys.stdout.buffer.write(bin_data)")
 
-if __name__ == '__main__':
+
+
+
+
+
+
+
+
+def main_v1():
   import argparse
   parser = argparse.ArgumentParser(description='JavaDeserializer')
   parser.add_argument('filename',   help='Load and parse file')
@@ -1626,20 +1653,104 @@ if __name__ == '__main__':
   )
   
   if args.test:
-    _perform_roundtrip_test(unserialized_stuff)
+    _perform_roundtrip_test(bin1, unserialized_stuff)
 
   else:
     if args.format is None:
-      print(" (no outpu format specified, but ... ) DONE !")
+      print(" (no outpu format specified, DONE !")
     elif args.format == 'yaml':
-      print(yamlify(unserialized_stuff))
+      print(outFormats.yamlify(unserialized_stuff))
     elif args.format == 'json':
-      print(json.dumps(_dictify(unserialized_stuff)))
+      print(json.dumps(outFormats._dictify(unserialized_stuff)))
     elif args.format == 'python':
-      print_python_stub(unserialized_stuff)
+      outFormats.print_python_stub(unserialized_stuff)
     elif args.format == "simple":
-        print( yaml.dump( simplyfy_object(unserialized_stuff) , width=1000) )  
+        print(outFormats.yaml.dump( unserialized_stuff.get_simple_value() , width=1000) )  
     else:
       raise Exception("Unknown output format !")
 
-             
+
+
+
+def main_v2():
+  import argparse
+  parser = argparse.ArgumentParser(description='JavaDeserializer')
+  parser.add_argument('filename',   help='Load and parse file')
+  parser.add_argument('--test',     help='Test stability of parsing', action="store_true", required=False)
+  parser.add_argument("--format",   help="out format : yaml, json, python", required=False, default=None)
+  parser.add_argument("--silent",   help="Silent mode", required=False, default=False, action="store_true")
+  parser.add_argument("--showref",  help="Show reference table", required=False, default=False, action="store_true")
+  parser.add_argument("--save-struct-to", help="Save binary structure pattern to FILENAME", default=None, required=False)
+  parser.add_argument("--save-struct-fmt", help="Save binary structure pattern FORMAT (json==default|imhex|kaitai)", default="json", required=False)
+  
+  parser.add_argument(
+    "--debug",
+    help = "set DEBUG log level",
+    action="store_true", required=False, default=False
+  )
+
+  parser.add_argument(
+    "--verbose",
+    help = "set INFO log level",
+    action="store_true", required=False, default=False
+  )
+  args = parser.parse_args()
+
+  opt = DeSerializerOptions()
+
+  if args.verbose:
+    opt.log_level = logging.INFO
+  if args.debug:
+    opt.log_level = logging.DEBUG
+  if args.silent:
+    opt.log_level = 999
+
+  opt.save_struct_to = args.save_struct_to
+  opt.save_format = args.save_struct_fmt
+  
+  try:
+    bin1 = open(args.filename,"rb").read()
+  except Exception as ex:
+    print(f"Fail to open file {args.filename}")
+    print(f"  Reason : {ex}")
+    exit(99)
+
+  if b'rO0' == bin1[:3] : 
+    logger.warning("[HEURISTIC] Payload is base64 ??")
+    bin1 = base64.b64decode(bin1)
+    
+  
+  unserialized_stuff = do_unserialize(
+    from_bytes = bin1,
+    opt = opt,
+  )  
+  
+  if args.test:
+    _perform_roundtrip_test(bin1, unserialized_stuff)
+
+  else:
+    if args.format is None:
+      print(" (no outpu format specified, DONE !")
+    elif args.format == 'yaml':
+      print(outFormats.yamlify(unserialized_stuff))
+    elif args.format == 'json':
+      print(json.dumps(outFormats._dictify(unserialized_stuff)))
+    elif args.format == 'python':
+      outFormats.print_python_stub(unserialized_stuff)
+    elif args.format == "simple":
+        print(
+          outFormats.yaml.dump(
+            unserialized_stuff.get_simple_value(),
+            width=1000
+          ) 
+        )
+    else:
+      raise Exception("Unknown output format !")
+
+
+
+
+
+
+if __name__ == '__main__':
+  main_v2()

@@ -3,9 +3,12 @@ from javaObj import *
 from javaCommons import *
 
 
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.ERROR)
+
+
 class j_HashMap__slim(j_HashMap):
-  #_class_name = "java.util.HashMap"
-  #_uid = 362498820763181265
   _fields = {}
     
   def constructor(self):
@@ -18,9 +21,7 @@ class j_HashMap__slim(j_HashMap):
       binwr.writeInt(0x00) # buckets
       binwr.writeInt(size)  # size
     for k,v in self.MAP.items():
-      print("pack k :",k)
       wr.write(k.pack_for_deserek())
-      print("pack v :",v)
       wr.write(v.pack_for_deserek())
       
 
@@ -60,10 +61,12 @@ def YsoSerial_URL__slim(host):
 
 
 if __name__ == '__main__':
+  import sys
+  domain_name = sys.argv[1]
   print(">>> save standard into 'tmp_yso1.bin' ")
-  open('tmp_yso1.bin',"wb").write( YsoSerial_URL("test123.com"))
+  open('tmp_yso1.bin',"wb").write( YsoSerial_URL(domain_name))
   
   print(">>> save slim into 'tmp_yso2.bin' ")
-  open('tmp_yso2.bin',"wb").write( YsoSerial_URL__slim("test123.com"))
+  open('tmp_yso2.bin',"wb").write( YsoSerial_URL__slim(domain_name))
 
    
