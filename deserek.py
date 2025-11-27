@@ -196,7 +196,7 @@ class serListOfObj(abstractBareJObject):
     self.value.append(x)
 
   def to_dict(self):
-    return [_dictify(x) for x in self.value]
+    return [outFormats._dictify(x) for x in self.value]
 
   def get_simple_value(self):
     return list(
@@ -311,9 +311,9 @@ class _abs_serBasicObject(abstractBareJObject):
       
       
   def to_dict(self):
-    fields = OrderedDict()
+    fields = outFormats.OrderedDict()
     for key in self._fields:
-      fields[key] = _dictify( getattr(self, key) )
+      fields[key] = outFormats._dictify( getattr(self, key) )
     return fields
     
 
@@ -853,47 +853,6 @@ class serTC_OBJECT(_abs_serTCValue):
        "values" : class_values,
       })
     return retval
-  
-  
-  def old1(self):
-    
-
-    if self.classDesc .TC == javaConst.TC_CLASSDESC:
-      class_name = master_classdesc.className.value
-      uid = master_classdesc.UID.value
- 
-    values = []
-    
-    def _get_vals_of_collection(col):
-      for item in col : # class_vals.objectAnnotation:
-        values.append(item.get_simple_value())
-    
-    for class_vals in self.classData.value: # iterate over lsit of (sub)class values
-      val_src = []
-      if flags & javaConst.SC_SERIALIZABLE :
-        val_src.append('serialdata')
-      if flags & javaConst.SC_WRITE_METHOD :
-        val_src.append('objectAnnotation')
-      if flags & javaConst.SC_EXTERNALIZABLE:
-        if flags & javaConst.SC_BLOCK_DATA:
-          val_src.append('externalContent')
-        else:
-          val_src.append('objectAnnotation')
-      #print(f"Getting values from {val_src}")
-      for src_name in val_src:
-        tmp = getattr(class_vals, src_name, None)
-        if tmp is not None:
-          _get_vals_of_collection(tmp)
-
-
-    
-    return {
-      "Class" : {"Name":class_name, "UID":uid },
-      "values" : values,
-    }
-
-
-
 
 
 def _read_single_typecode_value(ctx, tc):
@@ -1120,7 +1079,10 @@ class serTC_REFERENCE(_abs_serTCValue):
     return ret_val
     
   
-    
+  
+  def get_simple_value(self):
+    return f"<REF 0x{self.handle:08x}>"
+
     
  #self.raw += tmp
 class serTC_ENDBLOCKDATA(_abs_serTCValue):
@@ -1591,7 +1553,7 @@ def _perform_roundtrip_test(org, tmp):
   tmp4 = locals['tmp4']
   print(" -> Serialize from tmp4 variable")
   bin4 = do_serialize(tmp4)
-  print(f" ?? SERIALIZED :  LEN1={len(bin1)} , LEN2={len(bin4)} ")
+  print(f" ?? SERIALIZED :  LEN1={len(org)} , LEN2={len(bin4)} ")
   #open("tmp4.bin","wb").write(bin4)
   #open("tmp4.yml","w").write(yamlify(tmp))
   print(" ?? check if binary 1 & 4 format is identiacal ")
@@ -1603,71 +1565,6 @@ def _perform_roundtrip_test(org, tmp):
 
 
 
-
-
-
-
-
-
-def main_v1():
-  import argparse
-  parser = argparse.ArgumentParser(description='JavaDeserializer')
-  parser.add_argument('filename',   help='Load and parse file')
-  parser.add_argument('--test',     help='Test stability of parsing', action="store_true", required=False)
-  parser.add_argument("--format",   help="out format : yaml, json, python", required=False, default=None)
-  parser.add_argument("--silent",   help="Silent mode", required=False, default=False, action="store_true")
-  parser.add_argument("--showref",  help="Show reference table", required=False, default=False, action="store_true")
-  parser.add_argument("--save-struct-to", help="Save binary structure pattern to FILENAME", default=None, required=False)
-  parser.add_argument("--save-struct-fmt", help="Save binary structure pattern FORMAT (json==default|imhex|kaitai)", default="json", required=False)
-  
-  parser.add_argument(
-    "--log-level",
-    help = "set logLevel to value (info|debug|warning|error)",
-    default="debug",
-  )
-
-  args = parser.parse_args()
-
-  if args.silent:
-    # SILENT MODE 
-    logger.remove()
-
-
-  try:
-    bin1 = open(args.filename,"rb").read()
-  except Exception as ex:
-    print(f"Fail to open file {args.filename}")
-    print(f"  Reason : {ex}")
-    exit(99)
-
-  if b'rO0' == bin1[:3] : 
-    logger.warning("[HEURISTIC] Payload is base64 :)")
-    bin1 = base64.b64decode(bin1)
-
-  unserialized_stuff = do_unserial(
-    from_bytes = bin1, 
-    silent = args.silent,
-    save_struct_to = args.save_struct_to,
-    save_format = args.save_struct_fmt,
-    showref = args.showref
-  )
-  
-  if args.test:
-    _perform_roundtrip_test(bin1, unserialized_stuff)
-
-  else:
-    if args.format is None:
-      print(" (no outpu format specified, DONE !")
-    elif args.format == 'yaml':
-      print(outFormats.yamlify(unserialized_stuff))
-    elif args.format == 'json':
-      print(json.dumps(outFormats._dictify(unserialized_stuff)))
-    elif args.format == 'python':
-      outFormats.print_python_stub(unserialized_stuff)
-    elif args.format == "simple":
-        print(outFormats.yaml.dump( unserialized_stuff.get_simple_value() , width=1000) )  
-    else:
-      raise Exception("Unknown output format !")
 
 
 
