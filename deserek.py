@@ -119,7 +119,9 @@ def _int_to_str(v):
   #return f'0x{v:x}'
   return f'{v}, # hex: {hex(v)} chr:{chr(v)if v>30 and v<128 else "x"}'
 
+
 def _pythonize(item, indent):
+  # convert primitive to python
   #indent+=1
   # print(f"Pythonize {item}")
   can_py = getattr(item,"as_python",None)
@@ -153,7 +155,7 @@ class abstractBareJObject:
     self.read(ctx)
     
   def _init_from_kwargs(self):
-    pass
+    pass  
   
   def read(self, ctx):
     raise Exception(f"Implement READ -> read in {_cname(self)}")
@@ -1414,8 +1416,8 @@ class DebugOptions:
 @dataclass
 class DeSerializerOptions(DebugOptions):
   skip_header : bool = False
-  save_struct_to  : str = None, 
-  save_format     : str  = None,
+  save_struct_to  : str = None 
+  save_format     : str  = None
 
 @dataclass
 class SerializerOptions(DebugOptions):
@@ -1478,6 +1480,7 @@ def load_from_wire(wire:bytewirez.Wire, opt:DeSerializerOptions|None):
 
   # move that outside 
   if opt.save_struct_to and opt.save_format:
+    print(f"[>] Save format info [{opt.save_format}] > {opt.save_struct_to} ")
     f = open(opt.save_struct_to,'w')
     if opt.save_format == 'json':
       bytewirez.structure_to_html_viewer(context.reader, into_file=f)
@@ -1549,7 +1552,7 @@ def _perform_roundtrip_test(org, tmp):
     ),
     locals
   )
-  print(locals)
+  
   tmp4 = locals['tmp4']
   print(" -> Serialize from tmp4 variable")
   bin4 = do_serialize(tmp4)
@@ -1558,7 +1561,8 @@ def _perform_roundtrip_test(org, tmp):
   #open("tmp4.yml","w").write(yamlify(tmp))
   print(" ?? check if binary 1 & 4 format is identiacal ")
   assert org == bin4, "Serialization 1-4 not stable"
-
+  print(" ++ OK \n")
+  
 
   print("\n\nIf you see this message means that (de)serializator is stable !\n\n")
 

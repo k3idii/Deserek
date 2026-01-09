@@ -46,25 +46,29 @@ class j_HashMap(JavaSerializableClass):
     "loadFactor" : JavaFloat(0),
     "threshold"  : JavaInt32(0),
   }
+  
     
   def constructor(self):
     self.MAP = {}
     self.loadFactor = 0.1
     self.threshold = 2
 
+  def _get_buckets(self):
+    return 0
+  
+  def _get_size(self):
+    return len(self.MAP)
+
   def writeObject(self, wr: JavaObjectWriter):
     self.defaultWriteObject()
-    size = len(self.MAP)
     with wr.binary_block() as binwr:
-      binwr.writeInt(0x00) # bickets
-      binwr.writeInt(size)  # size
+      binwr.writeInt(self._get_buckets()) # bickets
+      binwr.writeInt(self._get_size())  # size
     for k,v in self.MAP.items():
       logger.debug("Hashmap:pack k :",k)
       wr.write(k.pack_for_deserek())
       logger.debug("Hashmap:pack v :",v)
       wr.write(v.pack_for_deserek())
-      
-
 
 
 class j_java_net_URL(JavaSerializableClass):

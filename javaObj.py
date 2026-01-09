@@ -188,12 +188,14 @@ class JavaSerializableClass(JavaLikeObject):
       self._super_class_list.append(c)
       c = c._super_class
 
+
+    self.constructor()
+    logger.debug(f"Object({self.__class__.__name__}, {self._class_name}) initialized !")
+    
     # TODO: run this after construcor and use set() function from fields
     for key,val in kw.items():
       setattr(self, key, val)
-    self.constructor()
-    logger.debug(f"Object({self.__class__.__name__}, {self._class_name}) initialized !")
-  
+      
 
   def constructor(self):
     pass 
@@ -213,7 +215,7 @@ class JavaSerializableClass(JavaLikeObject):
     logger.debug("you should try to implement that for your class")
 
   def __setattr__(self, __name: str, __value: Any) -> None:
-    logger.debug(f"setting [{self.__class__.__name__}]::[{ __name}] => {__value}")
+    logger.debug(f"JavaObject->setting [{self.__class__.__name__}]::[{ __name}] => {__value}")
     if hasattr(self,__name):
       # classic way
       self.__dict__[__name] = __value

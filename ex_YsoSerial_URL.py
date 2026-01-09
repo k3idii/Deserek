@@ -2,7 +2,6 @@ import deserek
 from javaObj import * 
 from javaCommons import *
 
-
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.ERROR)
@@ -14,7 +13,7 @@ class j_HashMap__slim(j_HashMap):
   def constructor(self):
     self.MAP = {}
 
-  def writeObject(self, wr: JavaObjectWriter):
+  def __defunc__writeObject(self, wr: JavaObjectWriter):
     self.defaultWriteObject()
     size = len(self.MAP)
     with wr.binary_block() as binwr:
@@ -62,11 +61,20 @@ def YsoSerial_URL__slim(host):
 
 if __name__ == '__main__':
   import sys
+  if len(sys.argv) < 2:
+    print(f"Usage {sys.argv[0]} <domai-name> [optional-out-file-name]")
+    exit(0)
+    
   domain_name = sys.argv[1]
-  print(">>> save standard into 'tmp_yso1.bin' ")
-  open('tmp_yso1.bin',"wb").write( YsoSerial_URL(domain_name))
+  sys.argv.append("yso_url")
+  base_out_file = sys.argv[2] 
   
-  print(">>> save slim into 'tmp_yso2.bin' ")
-  open('tmp_yso2.bin',"wb").write( YsoSerial_URL__slim(domain_name))
+  outfile = f"{base_out_file}_std.bin"
+  print(f">>> save standard into '{outfile}' ")
+  open(outfile,"wb").write( YsoSerial_URL(domain_name))
+  
+  outfile = f"{base_out_file}_slim.bin"
+  print(f">>> save slim into '{outfile}' ")
+  open(outfile,"wb").write( YsoSerial_URL__slim(domain_name))
 
    
