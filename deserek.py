@@ -463,8 +463,10 @@ class serJavaString(_abs_serSingleValue):
   
   def write(self, ctx):
     logger.info("JavaString")
-    ctx.wire.write_word( len(self.value) )
-    ctx.wire.write(self.value.encode()) #.encode())
+    enc_val = self.value.encode()
+    #ctx.wire.write_word( len(self.value) )
+    ctx.wire.write_word( len(enc_val) )
+    ctx.wire.write(enc_val) #.encode())
 
   
 class serJavaLongString(_abs_serSingleValue):
