@@ -964,7 +964,7 @@ class serTC_ARRAY(_abs_serTCValue):
   TC = javaConst.TC_ARRAY
   _fields = [
     'classDesc',
-    'handle',
+    #'handle',
     'size',
     'value'
   ]
@@ -1102,7 +1102,7 @@ class serTC_REFERENCE(_abs_serTCValue):
   _fields = ['handle_value']
   
   def read_obj(self, ctx):
-    print("RUN READ OBJECT ON TC_REFERENCE !!!")
+    #print("RUN READ OBJECT ON TC_REFERENCE !!!")
     self._ref_ctx = ctx
     ctx.reader.will_read("handle_value")
     self.handle_value = ctx.wire.read_dword()
