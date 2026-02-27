@@ -3,8 +3,6 @@
 from contextlib import contextmanager
 
 import base64 
-import struct
-
 import json
 
 
@@ -390,11 +388,16 @@ class _abs_serPeekTypecode(_abs_serBasicObject):
 
 
 
-
+def allocate_new_handle(ctx, ref):
+  handle = javaConst.baseWireHandle + ctx.next_handle_number()
+  logger.info(f"newHandle : {handle:08x} -> {_cname(ref)} ")
+  ctx.register_object(handle, ref)
+  return handle
 
 
 class serHandle(_abs_serSingleValue):
-
+  # this should be replaced by allocate_new_handle() function 
+  
   def read(self, ctx):
     ref = self._kwargs.get('ref')
     assert ref is not None, "ref must not be none !"
@@ -405,7 +408,8 @@ class serHandle(_abs_serSingleValue):
 
 
   def write(self, ctx):
-    pass
+    # we should register object here to be able to use handle references later
+    ctx.next_handle_number()
 
   
   
@@ -472,20 +476,20 @@ class serJavaString(_abs_serSingleValue):
 class serJavaLongString(_abs_serSingleValue):
 
   def read_obj(self, ctx):
-    99/0 # TODO 
-    self.raw = ctx.wire.read_qword()
-    size = struct.unpack(">Q", self.raw)[0]
-    logger.debug(f"read string len : {size} / 0x{size:04X}")
-
-    tmp = ctx.io.read(size)
-    self.raw += tmp
+    ctx.reader.will_read("size")
+    size = ctx.wire.read_qword()
+    logger.debug(f"try read long string len : {size} / 0x{size:016X}")
+    
+    ctx.reader.will_read("value")
+    tmp = ctx.wire.readn(size)
     self.value = tmp.decode()
-    logger.info(f"JavaString ({size}){self.value}")
+    logger.debug(f"++ Java::LongString ({size}){self.value}")
 
   def write(self, ctx):
-    logger.info("JavaString")
-    ctx.wire.write_qword( len(self.value) )
-    ctx.wire.write(self.value.encode())
+    logger.info("JavaLongString")
+    enc_val = self.value.encode()
+    ctx.wire.write_qword(len(enc_val))
+    ctx.wire.write(enc_val)
 
   
   
@@ -544,27 +548,25 @@ class serTC_CLASS(_abs_serTCValue):
   TC = javaConst.TC_CLASS
   _fields = [
     'classDesc',
-    'handle'
+    #'handle'
   ]
 
   def read_obj(self, ctx):
     ctx.reader.will_read('classDesc')
     self.classDesc = read_classDesc(ctx)
-
-    self.handle = serHandle(ctx=ctx, ref=self)
+    self.__handle = allocate_new_handle(ctx, self) #self.__handle = serHandle(ctx=ctx, ref=self)
 
 
   def write_obj(self, ctx):
     self.classDesc.write(ctx)
-    # handle 
-  
+    self.__handle = allocate_new_handle(ctx, self) #self.handle.write(ctx)
     
 
 class serTC_PROXYCLASSDESC(_abs_serTCValue):
   TC = javaConst.TC_PROXYCLASSDESC
 
   _fields = [
-    'handle',
+    #'handle',
     'count',
     'proxyInterfaceName',
     'classAnnotation',
@@ -575,7 +577,8 @@ class serTC_PROXYCLASSDESC(_abs_serTCValue):
     return '<PROXY CLASS>'
 
   def read_obj(self, ctx):
-    self.handle = serHandle(ctx=ctx, ref=self) 
+    
+    self.__handle = allocate_new_handle(ctx, self) #serHandle(ctx=ctx, ref=self) 
     logger.info("TC_PROXYCLASSDESC/proxyClassDescInfo")
     ctx.reader.will_read("count")
     self.count = ctx.wire.read_dword()
@@ -595,6 +598,7 @@ class serTC_PROXYCLASSDESC(_abs_serTCValue):
 
 
   def write_obj(self, ctx):
+    self.__handle = allocate_new_handle(ctx, self) #self.handle.write(ctx)
     ctx.wire.write_dword(self.count)
     self.proxyInterfaceName.write(ctx)
     self.classAnnotation.write(ctx)
@@ -607,7 +611,7 @@ class serTC_CLASSDESC(_abs_serTCValue):
   _fields = [
     'className',
     'UID',
-    'handle',
+    #'handle',
     'classDescFlags',
     'fields', 
     'classAnnotation', 
@@ -625,7 +629,7 @@ class serTC_CLASSDESC(_abs_serTCValue):
     ctx.reader.will_read("classUUID")
     self.UID = serUID( ctx = ctx )
     
-    self.handle = serHandle(ctx=ctx, ref=self) 
+    self.__handle = self.__handle = allocate_new_handle(ctx, self) #serHandle(ctx=ctx, ref=self) 
       
     ctx.reader.will_read("classFlags")
     self.classDescFlags = serClassFlags(ctx=ctx)
@@ -661,6 +665,7 @@ class serTC_CLASSDESC(_abs_serTCValue):
   def write_obj(self, ctx):
     self.className.write(ctx)
     self.UID.write(ctx)
+    self.__handle = allocate_new_handle(ctx, self) #self.handle.write(ctx) # increment handle counter
     self.classDescFlags.write(ctx)
     self.fields.write(ctx, include_size=">h")
     self.classAnnotation.write(ctx)
@@ -753,7 +758,7 @@ class serClassDescValues(_abs_serBasicObject):
 
       
   def _read_item__externalContent(self, ctx, _):
-    self.externalContent = read_blockdata_uintill_end(ctx, info='externalContent')
+    self.externalContent = read_blockdata_until_end(ctx, info='externalContent')
 
   def _read_item__objectAnnotation(self, ctx, _):
     self.objectAnnotation = read_objectAnnotation(ctx, info="objectAnnotation")
@@ -781,7 +786,7 @@ class serClassDescValues(_abs_serBasicObject):
 
 class serTC_OBJECT(_abs_serTCValue):
   TC = javaConst.TC_OBJECT
-  _fields = ['classDesc','handle', 'classData']
+  _fields = ['classDesc', 'classData']
 
   def read_obj(self, ctx):
  
@@ -789,7 +794,7 @@ class serTC_OBJECT(_abs_serTCValue):
     self.classDesc = read_classDesc(ctx)
     logger.debug(f"ClassDesc type : 0x{self.classDesc.TC:02x}/{_cname(self.classDesc)}")
       
-    self.handle = serHandle(ctx=ctx, ref=self)
+    self.__handle = allocate_new_handle(ctx, self) # self.__handle = serHandle(ctx=ctx, ref=self)
     
     #with ctx.scope(f"read classData(s) for {self.classDesc._get_name()}"):
     ctx.reader.will_read("classData")
@@ -842,6 +847,8 @@ class serTC_OBJECT(_abs_serTCValue):
       for values_src in _classDescFlags_to_data_elements(cdesc.classDescFlags.value):
         
         vals = getattr(cval, values_src, None)
+        if vals is None:
+          continue
         for item in vals:        
           val = item.get_simple_value()
           if len(field_names) > 0:
@@ -919,12 +926,13 @@ class serTC_STRING(_abs_serTCValue):
   _fields = ['value']
 
   def read_obj(self, ctx):
-    self.handle = serHandle(ctx=ctx, ref=self)
+    self.__handle = allocate_new_handle(ctx, self) #self.__handle = serHandle(ctx=ctx, ref=self)
     ctx.reader.will_read("value")
     self.value = serJavaString(ctx=ctx)
 
 
   def write_obj(self, ctx):
+    self.__handle = allocate_new_handle(ctx, self) #self.handle.write(ctx)
     self.value.write(ctx)
 
   def get_simple_value(self):
@@ -934,10 +942,19 @@ class serTC_STRING(_abs_serTCValue):
 
 class serTC_LONGSTRING(_abs_serTCValue):
   TC = javaConst.TC_LONGSTRING
+  _fields = ['value']
 
   def read_obj(self, ctx):
-    self.handle = serHandle(ctx=ctx, ref=self)
-    self.value = serJavaString(ctx=ctx)
+    self.__handle = allocate_new_handle(ctx, self) #self.__handle = serHandle(ctx=ctx, ref=self)
+    ctx.reader.will_read("value")
+    self.value = serJavaLongString(ctx=ctx)
+
+  def write_obj(self, ctx):
+    self.__handle = allocate_new_handle(ctx, self) #self.handle.write(ctx)
+    self.value.write(ctx)
+
+  def get_simple_value(self):
+    return f"(longStringObject) {self.value.value}"
 
 
 
@@ -945,14 +962,19 @@ class serTC_LONGSTRING(_abs_serTCValue):
 
 class serTC_ARRAY(_abs_serTCValue):
   TC = javaConst.TC_ARRAY
-  _fields = ['classDesc','handle','size','value']
+  _fields = [
+    'classDesc',
+    'handle',
+    'size',
+    'value'
+  ]
   
   def read_obj(self, ctx):
     #classDesc newHandle (int)<size> values[size]
     ctx.reader.will_read("classDesc")
     self.classDesc = read_classDesc(ctx)
     
-    self.handle = serHandle(ctx=ctx, ref=self)
+    self.__handle = allocate_new_handle(ctx, self) #self.__handle = serHandle(ctx=ctx, ref=self)
     
     ctx.reader.will_read("size")
     self.size = ctx.wire.read_dword()
@@ -983,8 +1005,7 @@ class serTC_ARRAY(_abs_serTCValue):
 
   def write_obj(self, ctx):
     self.classDesc.write(ctx)
-    self.handle.write(ctx)
-    # TODO: ctx.wire.write_dword() ... 
+    self.__handle = allocate_new_handle(ctx, self) #self.handle.write(ctx)
     self.value.write(ctx, include_size='>I')
 
   def get_simple_value(self):
@@ -995,19 +1016,23 @@ class serTC_ARRAY(_abs_serTCValue):
 
 class serTC_ENUM(_abs_serTCValue):
   TC = javaConst.TC_ENUM
-  _fields = ['classDesc','handle','enumName']
+  _fields = [
+    'classDesc',
+    #'handle',
+    'enumName'
+  ]
   
   def read_obj(self, ctx):
     ctx.reader.will_read("class_description")
     self.classDesc = read_classDesc(ctx)
-    self.handle = serHandle(ctx=ctx, ref=self)
+    self.__handle = allocate_new_handle(ctx, self) #self.__handle = serHandle(ctx=ctx, ref=self)
     ctx.reader.will_read("enum_const_name")
     self.enumName = read_object(ctx)
     
 
   def write_obj(self, ctx):
     self.classDesc.write(ctx)
-    self.handle.write(ctx)
+    self.__handle = allocate_new_handle(ctx, self) #self.handle.write(ctx)
     self.enumName.write(ctx)
     
     
@@ -1044,30 +1069,56 @@ class serTC_BLOCKDATA(_abs_serTCValue):
 
 class serTC_BLOCKDATALONG(_abs_serTCValue):
   TC = javaConst.TC_BLOCKDATALONG
-  # TODO : implement
+  _fields = ['size','value']
+  
+  def read_obj(self, ctx):
+    ctx.reader.will_read("size")
+    self.size = ctx.wire.read_dword()
+
+    ctx.reader.will_read("value")
+    self.value = ctx.wire.read(self.size)
+
+    logger.debug(f"BLOCKDATALONG ({self.size}) : {self.value}")
+
+  def write_obj(self, ctx):
+    ctx.wire.write_dword(self.size)
+    ctx.wire.write(self.value)
+
+  def to_dict(self):
+    rv = dict(
+      size = self.size ,
+      data_hex = self.value.hex(),
+      data_str = str(self.value) ,
+    )
+    return rv
+
+  def get_simple_value(self):
+    return { "BLOCKDATALONG":  str(self.value) }
   
   
 
 class serTC_REFERENCE(_abs_serTCValue):
   TC = javaConst.TC_REFERENCE
-  _fields = ['handle']
+  _fields = ['handle_value']
   
   def read_obj(self, ctx):
+    print("RUN READ OBJECT ON TC_REFERENCE !!!")
     self._ref_ctx = ctx
-    ctx.reader.will_read("handle")
-    self.handle = ctx.wire.read_dword()
-    logger.info(f"HandleRef : {self.handle:08x}")
+    ctx.reader.will_read("handle_value")
+    self.handle_value = ctx.wire.read_dword()
+    logger.info(f"HandleRef : {self.handle_value:08x}")
+    self._real_object = self._ref_ctx.get_ref(self.handle_value)
   
   def write_obj(self, ctx):
-    ctx.wire.write_dword(self.handle)
+    ctx.wire.write_dword(self.handle_value)
     
   ## HACKS TO ACCESS REFERENCES 
 
   def __getattr__(self, __name: str):
-    self._ref_logger.debug(f"!! NOTICE: resolveing attr [{__name}] on reference 0x{self.handle:08x}")
+    logger.debug(f"!! NOTICE: resolveing attr [{__name}] on reference 0x{self.handle_value:08x}")
     #raise Exception(f"You tried to get attr {__name} of TC_REFERENCE !")
     
-    ref_obj = self._ref_ctx.get_ref(self.handle)
+    ref_obj = self._ref_ctx.get_ref(self.handle_value)
     ret_val = getattr(ref_obj, __name, None)
     
     
@@ -1077,15 +1128,15 @@ class serTC_REFERENCE(_abs_serTCValue):
     #time.sleep(1)
     
 
-    assert ret_val is not None, f"TC_REFERENCE [0x{self.handle:08X}] lookup `{__name}` returned NONE !"
-    self._ref_logger.debug(f"!! SUCCESS lookup -> {__name} from { _cname(ref_obj)}")
+    assert ret_val is not None, f"TC_REFERENCE [0x{self.handle_value:08X}] lookup `{__name}` returned NONE !"
+    logger.debug(f"!! SUCCESS lookup -> {__name} from { _cname(ref_obj)}")
     # time.sleep(1)
     return ret_val
     
   
   
   def get_simple_value(self):
-    return f"<REF 0x{self.handle:08x}>"
+    return f"<REF 0x{self.handle_value:08x}>"
 
     
  #self.raw += tmp
@@ -1102,11 +1153,25 @@ class serTC_NULL(_abs_serTCValue):
  
 class serTC_EXCEPTION(_abs_serTCValue):
   TC = javaConst.TC_EXCEPTION
-  _is_empty = True
+  _fields = ['exception']
+  
+  def read_obj(self, ctx):
+    ctx.reset_handles()
+    ctx.reader.will_read("exception")
+    self.exception = read_object(ctx)
+
+  def write_obj(self, ctx):
+    ctx.reset_handles()
+    self.exception.write(ctx)
 
 class serTC_RESET(_abs_serTCValue):
   TC = javaConst.TC_RESET
-  _is_empty = True
+  
+  def read_obj(self, ctx):
+    ctx.reset_handles()
+
+  def write_obj(self, ctx):
+    ctx.reset_handles()
 
 
 
@@ -1220,10 +1285,10 @@ def read_endBlockData(ctx):
   return serTC_ENDBLOCKDATA(ctx=ctx)
 
 
-def read_blockdata_uintill_end(ctx, info='?'):
+def read_blockdata_until_end(ctx, info='?'):
   retval = serListOfObj()
   with ctx.reader.start_list():
-    logger.debug(f"read contents untill endBlockData @{info}")
+    logger.debug(f"read contents until endBlockData @{info}")
     while True:
       try:
         item = read_endBlockData(ctx)
@@ -1255,11 +1320,11 @@ def read_blockdata_uintill_end(ctx, info='?'):
 
 def read_classAnnotation(ctx, info="??"): # or object 
   logger.info("READ classAnnotation")
-  return read_blockdata_uintill_end(ctx, info)
+  return read_blockdata_until_end(ctx, info)
   
 def read_objectAnnotation(ctx, info="?"):
   logger.info("READ objectAnnotation")
-  return read_blockdata_uintill_end(ctx, info) 
+  return read_blockdata_until_end(ctx, info) 
 
 
 
@@ -1306,11 +1371,10 @@ def read_contents(ctx):
   
 
 
-def try_read_stuff(ctx:object, frendly_name:str, options:list):
+def try_read_stuff(ctx: 'DeserekContext', frendly_name: str, options: list):
   """
     Try to read next item using readers from <options>
   """
-  #names = list(x.__name__ for x in options)
   count = len(options)
   logger.debug(f"TRY: {frendly_name} (candidates count:{count})")
   with ctx.inc_depth():
@@ -1318,11 +1382,20 @@ def try_read_stuff(ctx:object, frendly_name:str, options:list):
       try:
         logger.debug(f"try read no:{i+1:2}/{count} -> Try func:{fnc.__name__}")
         val = fnc(ctx)
-        logger.info(f"++ Mach! Reading {fnc} ")
+        logger.info(f"++ Match! Reading {fnc.__name__}")
         return val
       except ReadCheckFailed as ex:
         logger.debug(f" -> FAIL: {fnc.__name__} (reason: {str(ex)})")
-    raise ReadCheckFailed(f"Fail to read - out of options at {frendly_name}")
+    
+    # If we reached here, all options failed.
+    # Peek at the current byte to help debugging.
+    try:
+      peeked = ctx.wire.peek_byte()
+      peek_info = f"at 0x{ctx.wire.get_pos():X}: 0x{peeked:02X}/{peeked}"
+    except Exception:
+      peek_info = "at EOF"
+    
+    raise ReadCheckFailed(f"Fail to read {frendly_name} - out of {count} options. {peek_info}")
 
 
 
@@ -1360,8 +1433,14 @@ class DeserekContext:
     self.handle_counter += 1
     return tmp 
 
+  def reset_handles(self):
+    logger.info("Resetting handles in context")
+    self.handle_counter = 0
+    self._ref = {}
+    self._ref_backlog = {}
+
   def get_ref(self, ref_id):
-    logger.debug(f"Get ref to {ref_id:08x}")
+    logger.debug(f"Get ref to {ref_id:08x} ... {ref_id in self._ref}")
     self._ref_backlog[ref_id] += 1
     #time.sleep(1)
     return self._ref[ref_id]
@@ -1381,13 +1460,13 @@ class DeserekContext:
       # items w/ classDesc 
       elif v.TC in [javaConst.TC_OBJECT, javaConst.TC_ARRAY]: 
         if v.classDesc.TC == javaConst.TC_REFERENCE:
-          x = f'REF : {v.classDesc.handle:08X}'
+          x = f'REF : {v.classDesc.handle_value:08X}'
         else:
           x = f'OBJ->DESC->NAME: {v.classDesc.className.value}'
       elif v.TC == javaConst.TC_STRING:
         x = f"STR: {v.value.value}"
       else:
-        raise Exception("WTF 3")
+        x = f"UNKNOWN TC: {v.TC}"
        
       print(f"## -> {x}")
     #time.sleep(2)
@@ -1403,10 +1482,6 @@ class DeserekContext:
       self._depth -= 1
       _set_log_indent(self._depth)
       
-  def _useless_indent(self):
-    return ' '*self._depth
-
-
 from dataclasses import dataclass
 
 @dataclass
@@ -1429,12 +1504,13 @@ class SerializerOptions(DebugOptions):
 """ unified interface """    
 # New, cleaner API
 def do_unserialize(
-    from_bytes : bytes | None = None,
-    from_fd  : int | None = None,
-    from_wire : bytewirez.Wire | None = None,
-    opt : DeSerializerOptions|None = None,
-  ) -> serListOfObj:
+    from_bytes: bytes | None = None,
+    from_fd =  None, # from typing import BinaryIO
+    from_wire: bytewirez.Wire | None = None,
+    opt: DeSerializerOptions | None = None,
+) -> serListOfObj:
   """
+  Unserialize Java objects from various sources.
   """
   wire = None
   if from_wire:
@@ -1449,7 +1525,7 @@ def do_unserialize(
   return load_from_wire(wire = wire, opt=opt)
   
 
-def load_from_wire(wire:bytewirez.Wire, opt:DeSerializerOptions|None):
+def load_from_wire(wire: bytewirez.Wire, opt: DeSerializerOptions | None = None) -> serListOfObj:
   
   if opt is None:
     opt = DeSerializerOptions() # default
@@ -1495,7 +1571,7 @@ def load_from_wire(wire:bytewirez.Wire, opt:DeSerializerOptions|None):
   return content
 
 
-def do_serialize(content:abstractBareJObject, opt:SerializerOptions|None=None):
+def do_serialize(content: abstractBareJObject, opt: SerializerOptions | None = None) -> bytes:
   if opt is None:
     opt = SerializerOptions() # default
   
