@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deserek"
+version = "0.1.0"
+authors = [
+    { name = "k3idii" },
+]
+description = "Python code to Serialize and Unserialize java binary serialization format."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Java Libraries",
+]
+dependencies = [
+    "PyYAML",
+    "bytewirez",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/k3idii/Deserek"
+"Bug Tracker" = "https://github.com/k3idii/Deserek/issues"
+
+[project.scripts]
+deserek = "deserek.core:main_v2"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["examples*", "tests*"]

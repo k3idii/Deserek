@@ -5,3 +5,6 @@ demo*
 *.bin
 JavaSerializationTestSuit
 JavaSerializationTestSuit/*
+dist/
+*.egg-info/
+.venv/

@@ -1,6 +1,6 @@
 from typing import Any
-import deserek
-import javaConst
+from . import core as deserek
+from . import javaConst
 from contextlib import contextmanager
 
 import logging
@@ -14,8 +14,6 @@ WELL_KNOWN = {
   
 }
 
-
-javaConst.baseWireHandle
 
 class __HandleIdGeneratorClass:
   n = javaConst.baseWireHandle
@@ -223,7 +221,7 @@ class JavaSerializableClass(JavaLikeObject):
       logger.debug(self._fields)
       
       setter = getattr(self._fields[__name], "set", None)
-      if setattr and callable(setter):
+      if setter and callable(setter):
         logger.debug(f"Call set {__name} => {__value}")
         setter(__value)
       else:
@@ -255,7 +253,7 @@ class JavaSerializableClass(JavaLikeObject):
     list_of_field_desc = []
     
     for name, obj in self._fields.items():
-      logger.debug("~ for class Desc", name)
+      logger.debug(f"~ for class Desc {name}")
       list_of_field_desc.append( 
         obj.for_classDesc(name)
       )
@@ -271,12 +269,12 @@ class JavaSerializableClass(JavaLikeObject):
     )
     return obj
 
-  def prepare_standard_fields_values(self,filter=None):
+  def prepare_standard_fields_values(self, field_filter=None):
     field_values = []
-    
+
     for name, obj in self._fields.items():
       logger.debug(f" > ClassData-field:{name}=>{obj}")
-      if filter and name not in filter:
+      if field_filter and name not in field_filter:
         logger.debug(f"    ~ SKIP ")
         continue
       field_values.append(
@@ -305,7 +303,7 @@ class JavaSerializableClass(JavaLikeObject):
         kwargs['serialdata'] = deserek.serListOfObj(
           value = self._standard_fields_values
         )
-    logger.debug(">> Write values ", kwargs)
+    logger.debug(f">> Write values {kwargs}")
     obj = deserek.serClassDescValues(
       _class_name=self._class_name,
       **kwargs,
@@ -324,7 +322,7 @@ class JavaSerializableClass(JavaLikeObject):
   
   
 class JavaExternalizableClass(JavaSerializableClass):
-  _fields = [] # no need to list fields
+  _fields = {} # no need to list fields
   
   def _get_flags(self):
     flags = 0 | javaConst.SC_BLOCK_DATA | javaConst.SC_EXTERNALIZABLE
@@ -338,7 +336,7 @@ class JavaExternalizableClass(JavaSerializableClass):
     field_values = []
     data = b''
     for item in self.writeExternal():
-      data += deserek.do_serialize(item, skip_magic=1)
+      data += deserek.do_serialize(item, opt=deserek.SerializerOptions(skip_header=True))
       
     field_values.append(
       deserek.serTC_BLOCKDATA(size=len(data), value=data)
@@ -387,6 +385,7 @@ class j_TestCustomClass2(JavaSerializableClass):
     with wr.binary_block() as binwr:
       binwr.writeInt(0xff)
     
+    from . import javaCommons
     i1 = javaCommons.j_simpleInteger()
     i1.value = 0xeeff
     wr.write(i1.pack_for_deserek())
@@ -398,7 +397,7 @@ class j_TestCustomClass2(JavaSerializableClass):
 
 if __name__ == '__main__':
   import sys
-  import javaCommons 
+  from . import javaCommons
 
   sys.argv.append('3') # 
   test_no = int(sys.argv[1])
